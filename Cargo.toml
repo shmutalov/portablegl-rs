@@ -1,0 +1,28 @@
+[package]
+name = "portablegl"
+version = "0.1.0"
+edition = "2021"
+description = "A pure Rust software implementation of OpenGL 3.x core profile, ported from PortableGL"
+license = "MIT"
+
+[features]
+default = ["abgr32", "d24s8"]
+
+# Pixel formats (choose one)
+abgr32 = []
+rgba32 = []
+argb32 = []
+bgra32 = []
+rgb565 = []
+bgr565 = []
+
+# Depth/stencil formats (choose one)
+d24s8 = []
+d16 = []
+no_depth = []
+
+# Optional features
+no_stencil = []
+unsafe_mode = []
+hermite_smoothing = []
+better_thick_lines = []
