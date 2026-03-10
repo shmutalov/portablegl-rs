@@ -31,21 +31,21 @@ macro_rules! set_err {
 // Free functions (default shaders, helpers)
 // ---------------------------------------------------------------------------
 
-fn default_vs(
-    _vs_output: &mut [f32],
-    vertex_attribs: &[Vec4],
-    builtins: &mut ShaderBuiltins,
+unsafe extern "C" fn default_vs(
+    _vs_output: *mut f32,
+    vertex_attribs: *mut Vec4,
+    builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
-    builtins.gl_Position = vertex_attribs[0];
+    (*builtins).gl_Position = *vertex_attribs;
 }
 
-fn default_fs(
-    _fs_input: &[f32],
-    builtins: &mut ShaderBuiltins,
+unsafe extern "C" fn default_fs(
+    _fs_input: *mut f32,
+    builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
-    builtins.gl_FragColor = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 0.0, 1.0);
 }
 
 fn init_tex(tex: &mut GlTexture, target: GLenum) {

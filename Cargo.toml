@@ -5,6 +5,9 @@ edition = "2021"
 description = "A pure Rust software implementation of OpenGL 3.x core profile, ported from PortableGL"
 license = "MIT"
 
+[lib]
+crate-type = ["lib", "cdylib", "staticlib"]
+
 [dependencies]
 libm = { version = "0.2", optional = true }
 
@@ -32,3 +35,4 @@ no_stencil = []
 unsafe_mode = []
 hermite_smoothing = []
 better_thick_lines = []
+ffi = []

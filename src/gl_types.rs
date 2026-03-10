@@ -495,6 +495,7 @@ pub const PGL_NOPERSPECTIVE: GLenum = 2;
 // ---------------------------------------------------------------------------
 
 /// Built-in shader variables that mirror GLSL built-ins.
+#[repr(C)]
 #[derive(Clone, Debug)]
 pub struct ShaderBuiltins {
     // vertex inputs
@@ -528,18 +529,18 @@ impl Default for ShaderBuiltins {
     }
 }
 
-/// Vertex shader function signature.
-pub type VertFunc = fn(
-    vs_output: &mut [f32],
-    vertex_attribs: &[Vec4],
-    builtins: &mut ShaderBuiltins,
+/// Vertex shader function signature (C-compatible).
+pub type VertFunc = unsafe extern "C" fn(
+    vs_output: *mut f32,
+    vertex_attribs: *mut Vec4,
+    builtins: *mut ShaderBuiltins,
     uniforms: *mut c_void,
 );
 
-/// Fragment shader function signature.
-pub type FragFunc = fn(
-    fs_input: &[f32],
-    builtins: &mut ShaderBuiltins,
+/// Fragment shader function signature (C-compatible).
+pub type FragFunc = unsafe extern "C" fn(
+    fs_input: *mut f32,
+    builtins: *mut ShaderBuiltins,
     uniforms: *mut c_void,
 );
 
@@ -564,18 +565,18 @@ unsafe impl Send for GlProgram {}
 unsafe impl Sync for GlProgram {}
 
 /// Default no-op vertex shader used as placeholder.
-fn default_vert_shader(
-    _vs_output: &mut [f32],
-    _vertex_attribs: &[Vec4],
-    _builtins: &mut ShaderBuiltins,
+unsafe extern "C" fn default_vert_shader(
+    _vs_output: *mut f32,
+    _vertex_attribs: *mut Vec4,
+    _builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
 }
 
 /// Default no-op fragment shader used as placeholder.
-fn default_frag_shader(
-    _fs_input: &[f32],
-    _builtins: &mut ShaderBuiltins,
+unsafe extern "C" fn default_frag_shader(
+    _fs_input: *mut f32,
+    _builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
 }

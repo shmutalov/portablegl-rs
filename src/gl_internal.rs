@@ -640,12 +640,14 @@ pub fn do_vertex(
     let uniform = program.uniform;
     let vs_out = &mut c.vs_output.output_buf[start..end];
 
-    (vs)(
-        vs_out,
-        &c.vertex_attribs_vs,
-        &mut c.builtins,
-        uniform,
-    );
+    unsafe {
+        (vs)(
+            vs_out.as_mut_ptr(),
+            c.vertex_attribs_vs.as_mut_ptr(),
+            &mut c.builtins as *mut ShaderBuiltins,
+            uniform,
+        );
+    }
 
     // Store clip space position
     c.glverts[vert].clip_space = c.builtins.gl_Position;
@@ -1556,9 +1558,15 @@ pub fn draw_thick_line(
                 let program = &c.programs[program_idx];
                 let fs = program.fragment_shader;
                 let uniform = program.uniform;
-                let fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
+                let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
 
-                (fs)(&fs_input_copy, &mut c.builtins, uniform);
+                unsafe {
+                    (fs)(
+                        fs_input_copy.as_mut_ptr(),
+                        &mut c.builtins as *mut ShaderBuiltins,
+                        uniform,
+                    );
+                }
 
                 if c.builtins.discard {
                     continue;
@@ -1619,9 +1627,15 @@ pub fn draw_thick_line(
                 let program = &c.programs[program_idx];
                 let fs = program.fragment_shader;
                 let uniform = program.uniform;
-                let fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
+                let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
 
-                (fs)(&fs_input_copy, &mut c.builtins, uniform);
+                unsafe {
+                    (fs)(
+                        fs_input_copy.as_mut_ptr(),
+                        &mut c.builtins as *mut ShaderBuiltins,
+                        uniform,
+                    );
+                }
 
                 if c.builtins.discard {
                     continue;
@@ -1747,9 +1761,15 @@ pub fn draw_thick_line(
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
+            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
 
-            (fs)(&fs_input_copy, &mut c.builtins, uniform);
+            unsafe {
+                (fs)(
+                    fs_input_copy.as_mut_ptr(),
+                    &mut c.builtins as *mut ShaderBuiltins,
+                    uniform,
+                );
+            }
 
             if c.builtins.discard {
                 continue;
@@ -1839,9 +1859,15 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
+            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
 
-            (fs)(&fs_input_copy, &mut c.builtins, uniform);
+            unsafe {
+                (fs)(
+                    fs_input_copy.as_mut_ptr(),
+                    &mut c.builtins as *mut ShaderBuiltins,
+                    uniform,
+                );
+            }
 
             if c.builtins.discard {
                 continue;
@@ -2290,9 +2316,15 @@ pub fn draw_triangle_fill(
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
+            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
 
-            (fs)(&fs_input_copy, &mut c.builtins, uniform);
+            unsafe {
+                (fs)(
+                    fs_input_copy.as_mut_ptr(),
+                    &mut c.builtins as *mut ShaderBuiltins,
+                    uniform,
+                );
+            }
 
             if c.builtins.discard {
                 continue;

@@ -50,39 +50,36 @@ impl PglVertex {
 
 /// Pass-through vertex shader that copies vertex_attribs[0] to gl_Position
 /// and forwards all attributes as shader outputs.
-pub fn pgl_default_vs(
-    vs_output: &mut [f32],
-    vertex_attribs: &[Vec4],
-    builtins: &mut ShaderBuiltins,
+pub unsafe extern "C" fn pgl_default_vs(
+    vs_output: *mut f32,
+    vertex_attribs: *mut Vec4,
+    builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
-    builtins.gl_Position = vertex_attribs[0];
-
+    (*builtins).gl_Position = *vertex_attribs;
     // Pass through all vertex attributes as float outputs (4 floats per attrib)
-    let num_attribs = vertex_attribs.len().min(GL_MAX_VERTEX_ATTRIBS);
-    let mut out_idx = 0;
-    for i in 0..num_attribs {
-        if out_idx + 3 < vs_output.len() {
-            vs_output[out_idx] = vertex_attribs[i].x;
-            vs_output[out_idx + 1] = vertex_attribs[i].y;
-            vs_output[out_idx + 2] = vertex_attribs[i].z;
-            vs_output[out_idx + 3] = vertex_attribs[i].w;
-            out_idx += 4;
-        }
+    for i in 0..GL_MAX_VERTEX_ATTRIBS {
+        let va = *vertex_attribs.add(i);
+        let base = i * 4;
+        *vs_output.add(base) = va.x;
+        *vs_output.add(base + 1) = va.y;
+        *vs_output.add(base + 2) = va.z;
+        *vs_output.add(base + 3) = va.w;
     }
 }
 
 /// Simple pass-through fragment shader that reads color from fs_input[0..4].
-pub fn pgl_default_fs(
-    fs_input: &[f32],
-    builtins: &mut ShaderBuiltins,
+pub unsafe extern "C" fn pgl_default_fs(
+    fs_input: *mut f32,
+    builtins: *mut ShaderBuiltins,
     _uniforms: *mut c_void,
 ) {
-    if fs_input.len() >= 4 {
-        builtins.gl_FragColor = Vec4::new(fs_input[0], fs_input[1], fs_input[2], fs_input[3]);
-    } else {
-        builtins.gl_FragColor = Vec4::new(1.0, 1.0, 1.0, 1.0);
-    }
+    (*builtins).gl_FragColor = Vec4::new(
+        *fs_input,
+        *fs_input.add(1),
+        *fs_input.add(2),
+        *fs_input.add(3),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -445,7 +442,13 @@ impl GlContext {
                 );
                 self.builtins.discard = false;
 
-                (frag_shader)(&self.fs_input, &mut self.builtins, uniforms);
+                unsafe {
+                    (frag_shader)(
+                        self.fs_input.as_mut_ptr(),
+                        &mut self.builtins as *mut ShaderBuiltins,
+                        uniforms,
+                    );
+                }
 
                 if !self.builtins.discard {
                     let color = Color::from_vec4(self.builtins.gl_FragColor);
@@ -477,7 +480,13 @@ impl GlContext {
                 );
                 self.builtins.discard = false;
 
-                (frag_shader)(&self.fs_input, &mut self.builtins, uniforms);
+                unsafe {
+                    (frag_shader)(
+                        self.fs_input.as_mut_ptr(),
+                        &mut self.builtins as *mut ShaderBuiltins,
+                        uniforms,
+                    );
+                }
 
                 if !self.builtins.discard {
                     let color = Color::from_vec4(self.builtins.gl_FragColor);
