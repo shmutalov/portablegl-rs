@@ -5,6 +5,7 @@
 
 #![allow(non_upper_case_globals, non_snake_case, dead_code, clippy::too_many_arguments)]
 
+use crate::float_math::F32Ext;
 use crate::math::*;
 use crate::gl_types::*;
 use crate::gl_context::*;
@@ -66,7 +67,7 @@ fn tex_data_as_u32(tex: &GlTexture) -> &[u32] {
         return &[];
     }
     let ptr = tex.data.as_ptr() as *const u32;
-    unsafe { std::slice::from_raw_parts(ptr, len) }
+    unsafe { core::slice::from_raw_parts(ptr, len) }
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ fn tex_data_as_u32(tex: &GlTexture) -> &[u32] {
 /// Return the fractional part of `x`. Always in [0, 1) for positive values.
 #[inline]
 fn fract(x: f32) -> f32 {
-    x - x.floor()
+    x - x.floor_()
 }
 
 // ---------------------------------------------------------------------------
@@ -123,12 +124,12 @@ impl GlContext {
         let xw = x * w;
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(xw.floor() as i32, t.w, t.wrap_s);
+            let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
             color_from_u32(texdata[i0 as usize])
         } else {
             // GL_LINEAR
-            let i0 = wrap((xw - 0.5).floor() as i32, t.w, t.wrap_s);
-            let i1 = wrap((xw + 0.499999).floor() as i32, t.w, t.wrap_s);
+            let i0 = wrap((xw - 0.5).floor_() as i32, t.w, t.wrap_s);
+            let i1 = wrap((xw + 0.499999).floor_() as i32, t.w, t.wrap_s);
             let mut alpha = fract(xw + 0.5);
             if alpha < 0.0 {
                 alpha += 1.0;
@@ -159,15 +160,15 @@ impl GlContext {
         let tw = t.w;
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(xw.floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap(yh.floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap(yh.floor_() as i32, t.h, t.wrap_t);
             color_from_u32(texdata[(j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear interpolation
-            let i0 = wrap((xw - 0.5).floor() as i32, t.w, t.wrap_s);
-            let i1 = wrap((xw + 0.499999).floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap((yh - 0.5).floor() as i32, t.h, t.wrap_t);
-            let j1 = wrap((yh + 0.499999).floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap((xw - 0.5).floor_() as i32, t.w, t.wrap_s);
+            let i1 = wrap((xw + 0.499999).floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap((yh - 0.5).floor_() as i32, t.h, t.wrap_t);
+            let j1 = wrap((yh + 0.499999).floor_() as i32, t.h, t.wrap_t);
 
             let mut alpha = fract(xw + 0.5);
             if alpha < 0.0 {
@@ -214,18 +215,18 @@ impl GlContext {
         let plane = tw * th; // pixels per depth slice
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(xw.floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap(yh.floor() as i32, t.h, t.wrap_t);
-            let k0 = wrap(zd.floor() as i32, t.d, t.wrap_r);
+            let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap(yh.floor_() as i32, t.h, t.wrap_t);
+            let k0 = wrap(zd.floor_() as i32, t.d, t.wrap_r);
             color_from_u32(texdata[(k0 * plane + j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — trilinear interpolation (8 samples)
-            let i0 = wrap((xw - 0.5).floor() as i32, t.w, t.wrap_s);
-            let i1 = wrap((xw + 0.499999).floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap((yh - 0.5).floor() as i32, t.h, t.wrap_t);
-            let j1 = wrap((yh + 0.499999).floor() as i32, t.h, t.wrap_t);
-            let k0 = wrap((zd - 0.5).floor() as i32, t.d, t.wrap_r);
-            let k1 = wrap((zd + 0.499999).floor() as i32, t.d, t.wrap_r);
+            let i0 = wrap((xw - 0.5).floor_() as i32, t.w, t.wrap_s);
+            let i1 = wrap((xw + 0.499999).floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap((yh - 0.5).floor_() as i32, t.h, t.wrap_t);
+            let j1 = wrap((yh + 0.499999).floor_() as i32, t.h, t.wrap_t);
+            let k0 = wrap((zd - 0.5).floor_() as i32, t.d, t.wrap_r);
+            let k1 = wrap((zd + 0.499999).floor_() as i32, t.d, t.wrap_r);
 
             let mut alpha = fract(xw + 0.5);
             if alpha < 0.0 {
@@ -291,15 +292,15 @@ impl GlContext {
         let k = z.clamp(0, t.d - 1);
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(xw.floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap(yh.floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap(yh.floor_() as i32, t.h, t.wrap_t);
             color_from_u32(texdata[(k * plane + j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear within the layer
-            let i0 = wrap((xw - 0.5).floor() as i32, t.w, t.wrap_s);
-            let i1 = wrap((xw + 0.499999).floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap((yh - 0.5).floor() as i32, t.h, t.wrap_t);
-            let j1 = wrap((yh + 0.499999).floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap((xw - 0.5).floor_() as i32, t.w, t.wrap_s);
+            let i1 = wrap((xw + 0.499999).floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap((yh - 0.5).floor_() as i32, t.h, t.wrap_t);
+            let j1 = wrap((yh + 0.499999).floor_() as i32, t.h, t.wrap_t);
 
             let mut alpha = fract(xw + 0.5);
             if alpha < 0.0 {
@@ -341,15 +342,15 @@ impl GlContext {
         let tw = t.w;
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(x.floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap(y.floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap(x.floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap(y.floor_() as i32, t.h, t.wrap_t);
             color_from_u32(texdata[(j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear interpolation
-            let i0 = wrap((x - 0.5).floor() as i32, t.w, t.wrap_s);
-            let i1 = wrap((x + 0.499999).floor() as i32, t.w, t.wrap_s);
-            let j0 = wrap((y - 0.5).floor() as i32, t.h, t.wrap_t);
-            let j1 = wrap((y + 0.499999).floor() as i32, t.h, t.wrap_t);
+            let i0 = wrap((x - 0.5).floor_() as i32, t.w, t.wrap_s);
+            let i1 = wrap((x + 0.499999).floor_() as i32, t.w, t.wrap_s);
+            let j0 = wrap((y - 0.5).floor_() as i32, t.h, t.wrap_t);
+            let j1 = wrap((y + 0.499999).floor_() as i32, t.h, t.wrap_t);
 
             let mut alpha = fract(x + 0.5);
             if alpha < 0.0 {
@@ -388,9 +389,9 @@ impl GlContext {
             return Vec4::default();
         }
 
-        let ax = x.abs();
-        let ay = y.abs();
-        let az = z.abs();
+        let ax = x.abs_();
+        let ay = y.abs_();
+        let az = z.abs_();
 
         // Determine dominant axis and compute face index + (s, t) coordinates.
         let (face, mut s, mut t_coord): (i32, f32, f32);
@@ -455,15 +456,15 @@ impl GlContext {
         let yh = t_coord * w;
 
         if t.mag_filter == GL_NEAREST {
-            let i0 = wrap(xw.floor() as i32, tw, t.wrap_s);
-            let j0 = wrap(yh.floor() as i32, tw, t.wrap_t);
+            let i0 = wrap(xw.floor_() as i32, tw, t.wrap_s);
+            let j0 = wrap(yh.floor_() as i32, tw, t.wrap_t);
             color_from_u32(texdata[(face_offset + j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear interpolation on the face
-            let i0 = wrap((xw - 0.5).floor() as i32, tw, t.wrap_s);
-            let i1 = wrap((xw + 0.499999).floor() as i32, tw, t.wrap_s);
-            let j0 = wrap((yh - 0.5).floor() as i32, tw, t.wrap_t);
-            let j1 = wrap((yh + 0.499999).floor() as i32, tw, t.wrap_t);
+            let i0 = wrap((xw - 0.5).floor_() as i32, tw, t.wrap_s);
+            let i1 = wrap((xw + 0.499999).floor_() as i32, tw, t.wrap_s);
+            let j0 = wrap((yh - 0.5).floor_() as i32, tw, t.wrap_t);
+            let j1 = wrap((yh + 0.499999).floor_() as i32, tw, t.wrap_t);
 
             let mut alpha = fract(xw + 0.5);
             if alpha < 0.0 {
@@ -647,10 +648,10 @@ mod tests {
     fn test_color_from_u32() {
         let pixel: u32 = 0xFF804020; // A=FF, B=80, G=40, R=20
         let c = color_from_u32(pixel);
-        assert!((c.x - 0x20 as f32 / 255.0).abs() < 1e-3); // R
-        assert!((c.y - 0x40 as f32 / 255.0).abs() < 1e-3); // G
-        assert!((c.z - 0x80 as f32 / 255.0).abs() < 1e-3); // B
-        assert!((c.w - 0xFF as f32 / 255.0).abs() < 1e-3); // A
+        assert!((c.x - 0x20 as f32 / 255.0).abs_() < 1e-3); // R
+        assert!((c.y - 0x40 as f32 / 255.0).abs_() < 1e-3); // G
+        assert!((c.z - 0x80 as f32 / 255.0).abs_() < 1e-3); // B
+        assert!((c.w - 0xFF as f32 / 255.0).abs_() < 1e-3); // A
     }
 
     #[test]
@@ -660,10 +661,10 @@ mod tests {
 
         // Sample at (0.25, 0.25) should hit pixel (0,0) = red
         let c = ctx.texture2d(1, 0.25, 0.25);
-        assert!((c.x - 1.0).abs() < 1e-3); // R = 1.0
-        assert!((c.y - 0.0).abs() < 1e-3); // G = 0.0
-        assert!((c.z - 0.0).abs() < 1e-3); // B = 0.0
-        assert!((c.w - 1.0).abs() < 1e-3); // A = 1.0
+        assert!((c.x - 1.0).abs_() < 1e-3); // R = 1.0
+        assert!((c.y - 0.0).abs_() < 1e-3); // G = 0.0
+        assert!((c.z - 0.0).abs_() < 1e-3); // B = 0.0
+        assert!((c.w - 1.0).abs_() < 1e-3); // A = 1.0
     }
 
     #[test]
@@ -673,17 +674,17 @@ mod tests {
 
         // Fetch pixel (1, 0) = green
         let c = ctx.texel_fetch2d(1, 1, 0, 0);
-        assert!((c.x - 0.0).abs() < 1e-3); // R = 0
-        assert!((c.y - 1.0).abs() < 1e-3); // G = 1.0
-        assert!((c.z - 0.0).abs() < 1e-3); // B = 0
-        assert!((c.w - 1.0).abs() < 1e-3); // A = 1.0
+        assert!((c.x - 0.0).abs_() < 1e-3); // R = 0
+        assert!((c.y - 1.0).abs_() < 1e-3); // G = 1.0
+        assert!((c.z - 0.0).abs_() < 1e-3); // B = 0
+        assert!((c.w - 1.0).abs_() < 1e-3); // A = 1.0
 
         // Fetch pixel (0, 1) = blue
         let c = ctx.texel_fetch2d(1, 0, 1, 0);
-        assert!((c.x - 0.0).abs() < 1e-3);
-        assert!((c.y - 0.0).abs() < 1e-3);
-        assert!((c.z - 1.0).abs() < 1e-3);
-        assert!((c.w - 1.0).abs() < 1e-3);
+        assert!((c.x - 0.0).abs_() < 1e-3);
+        assert!((c.y - 0.0).abs_() < 1e-3);
+        assert!((c.z - 1.0).abs_() < 1e-3);
+        assert!((c.w - 1.0).abs_() < 1e-3);
     }
 
     #[test]
@@ -729,14 +730,14 @@ mod tests {
 
         // Sample near the start -> red
         let c = ctx.texture1d(1, 0.1);
-        assert!((c.x - 1.0).abs() < 1e-3);
-        assert!((c.y - 0.0).abs() < 1e-3);
+        assert!((c.x - 1.0).abs_() < 1e-3);
+        assert!((c.y - 0.0).abs_() < 1e-3);
 
         // Sample near 0.75 -> last pixel = white
         let c = ctx.texture1d(1, 0.9);
-        assert!((c.x - 1.0).abs() < 1e-3);
-        assert!((c.y - 1.0).abs() < 1e-3);
-        assert!((c.z - 1.0).abs() < 1e-3);
+        assert!((c.x - 1.0).abs_() < 1e-3);
+        assert!((c.y - 1.0).abs_() < 1e-3);
+        assert!((c.z - 1.0).abs_() < 1e-3);
     }
 
     #[test]
@@ -750,10 +751,10 @@ mod tests {
         // All four contribute equally, so result should be the average
         // Red(1,0,0,1) + Green(0,1,0,1) + Blue(0,0,1,1) + White(1,1,1,1) / 4
         // = (0.5, 0.5, 0.5, 1.0)
-        assert!((c.x - 0.5).abs() < 0.1);
-        assert!((c.y - 0.5).abs() < 0.1);
-        assert!((c.z - 0.5).abs() < 0.1);
-        assert!((c.w - 1.0).abs() < 0.1);
+        assert!((c.x - 0.5).abs_() < 0.1);
+        assert!((c.y - 0.5).abs_() < 0.1);
+        assert!((c.z - 0.5).abs_() < 0.1);
+        assert!((c.w - 1.0).abs_() < 0.1);
     }
 
     #[test]

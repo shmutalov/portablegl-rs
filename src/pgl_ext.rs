@@ -11,11 +11,17 @@
     clippy::too_many_arguments
 )]
 
+use crate::float_math::F32Ext;
 use crate::gl_context::*;
 use crate::gl_types::*;
 use crate::math::*;
 
-use std::ffi::c_void;
+use core::ffi::c_void;
+
+#[cfg(feature = "no_std")]
+use alloc::vec;
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
 
 // ---------------------------------------------------------------------------
 // Extension data types
@@ -376,7 +382,7 @@ impl GlContext {
         let program = GlProgram {
             vertex_shader: pgl_default_vs,
             fragment_shader: fs,
-            uniform: std::ptr::null_mut(),
+            uniform: core::ptr::null_mut(),
             vs_output_size: n,
             interpolation,
             fragdepth_or_discard,
@@ -530,7 +536,7 @@ impl GlContext {
         // In the Rust port, we copy the data into a Vec for safety,
         // but mark user_owned so the caller knows the semantics.
         if !data.is_null() && size > 0 {
-            let slice = unsafe { std::slice::from_raw_parts(data, size as usize) };
+            let slice = unsafe { core::slice::from_raw_parts(data, size as usize) };
             self.buffers[buf_id].data = slice.to_vec();
         } else {
             self.buffers[buf_id].data = Vec::new();
@@ -609,7 +615,7 @@ impl GlContext {
         self.textures[tex_idx].user_owned = true;
 
         if !data.is_null() {
-            let slice = unsafe { std::slice::from_raw_parts(data, expected_size) };
+            let slice = unsafe { core::slice::from_raw_parts(data, expected_size) };
             self.textures[tex_idx].data = slice.to_vec();
         } else {
             self.textures[tex_idx].data = vec![0u8; expected_size];
@@ -657,7 +663,7 @@ impl GlContext {
         self.textures[tex_idx].user_owned = true;
 
         if !data.is_null() {
-            let slice = unsafe { std::slice::from_raw_parts(data, expected_size) };
+            let slice = unsafe { core::slice::from_raw_parts(data, expected_size) };
             self.textures[tex_idx].data = slice.to_vec();
         } else {
             self.textures[tex_idx].data = vec![0u8; expected_size];
@@ -706,7 +712,7 @@ impl GlContext {
         self.textures[tex_idx].user_owned = true;
 
         if !data.is_null() {
-            let slice = unsafe { std::slice::from_raw_parts(data, expected_size) };
+            let slice = unsafe { core::slice::from_raw_parts(data, expected_size) };
             self.textures[tex_idx].data = slice.to_vec();
         } else {
             self.textures[tex_idx].data = vec![0u8; expected_size];
@@ -724,10 +730,10 @@ impl GlContext {
     pub fn pgl_get_buffer_data(&self, buffer: GLuint) -> *mut u8 {
         let idx = buffer as usize;
         if idx == 0 || idx >= self.buffers.len() {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         if self.buffers[idx].deleted {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         self.buffers[idx].data.as_ptr() as *mut u8
     }
@@ -751,10 +757,10 @@ impl GlContext {
     pub fn pgl_get_texture_data(&self, texture: GLuint) -> *mut u8 {
         let idx = texture as usize;
         if idx == 0 || idx >= self.textures.len() {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         if self.textures[idx].deleted {
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         self.textures[idx].data.as_ptr() as *mut u8
     }
@@ -797,7 +803,7 @@ impl GlContext {
         let size = (w as usize) * (h as usize) * 4;
 
         if !data.is_null() && size > 0 {
-            let slice = unsafe { std::slice::from_raw_parts(data, size) };
+            let slice = unsafe { core::slice::from_raw_parts(data, size) };
             self.back_buffer.buf = slice.to_vec();
         } else {
             self.back_buffer.buf = vec![0u8; size];
@@ -895,10 +901,10 @@ impl GlContext {
         p3: Vec2,
     ) {
         // Compute bounding box
-        let min_x = p1.x.min(p2.x).min(p3.x).floor() as i32;
-        let min_y = p1.y.min(p2.y).min(p3.y).floor() as i32;
-        let max_x = p1.x.max(p2.x).max(p3.x).ceil() as i32;
-        let max_y = p1.y.max(p2.y).max(p3.y).ceil() as i32;
+        let min_x = p1.x.min_(p2.x).min_(p3.x).floor_() as i32;
+        let min_y = p1.y.min_(p2.y).min_(p3.y).floor_() as i32;
+        let max_x = p1.x.max_(p2.x).max_(p3.x).ceil_() as i32;
+        let max_y = p1.y.max_(p2.y).max_(p3.y).ceil_() as i32;
 
         let w = self.back_buffer.w;
         let h = self.back_buffer.h;
@@ -912,7 +918,7 @@ impl GlContext {
         // Triangle area * 2 (using cross product)
         let area = (p2.x - p1.x) * (p3.y - p1.y) - (p3.x - p1.x) * (p2.y - p1.y);
 
-        if area.abs() < f32::EPSILON {
+        if area.abs_() < f32::EPSILON {
             return; // degenerate triangle
         }
 

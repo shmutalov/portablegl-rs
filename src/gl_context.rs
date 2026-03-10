@@ -1,3 +1,6 @@
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+
 use crate::math::*;
 use crate::gl_types::*;
 

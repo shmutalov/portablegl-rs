@@ -14,6 +14,12 @@
     dead_code
 )]
 
+#[cfg(feature = "no_std")]
+use alloc::vec;
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
+
+use crate::float_math::F32Ext;
 use crate::gl_context::*;
 use crate::gl_types::*;
 use crate::math::*;
@@ -201,7 +207,7 @@ pub const PGL_DEPTH_BPP: usize = 0;
 /// Convert a float z in [0,1] to a depth buffer integer value.
 #[inline]
 pub fn z_to_depth(z: f32) -> u32 {
-    (z.clamp(0.0, 1.0) * PGL_MAX_DEPTH as f32) as u32
+    (z.clamp_(0.0, 1.0) * PGL_MAX_DEPTH as f32) as u32
 }
 
 /// Read the depth portion from a depth/stencil buffer entry.
@@ -1090,7 +1096,7 @@ fn blend_factor(factor: GLenum, src: Vec4, dst: Vec4, const_color: Vec4) -> Vec4
             Vec4::new(a, a, a, a)
         }
         GL_SRC_ALPHA_SATURATE => {
-            let f = src.w.min(1.0 - dst.w);
+            let f = src.w.min_(1.0 - dst.w);
             Vec4::new(f, f, f, 1.0)
         }
         _ => Vec4::new(1.0, 1.0, 1.0, 1.0),
@@ -1126,8 +1132,8 @@ pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
         GL_FUNC_ADD => (s_rgb.x + d_rgb.x, s_rgb.y + d_rgb.y, s_rgb.z + d_rgb.z),
         GL_FUNC_SUBTRACT => (s_rgb.x - d_rgb.x, s_rgb.y - d_rgb.y, s_rgb.z - d_rgb.z),
         GL_FUNC_REVERSE_SUBTRACT => (d_rgb.x - s_rgb.x, d_rgb.y - s_rgb.y, d_rgb.z - s_rgb.z),
-        GL_MIN => (src.x.min(dst.x), src.y.min(dst.y), src.z.min(dst.z)),
-        GL_MAX => (src.x.max(dst.x), src.y.max(dst.y), src.z.max(dst.z)),
+        GL_MIN => (src.x.min_(dst.x), src.y.min_(dst.y), src.z.min_(dst.z)),
+        GL_MAX => (src.x.max_(dst.x), src.y.max_(dst.y), src.z.max_(dst.z)),
         _ => (s_rgb.x + d_rgb.x, s_rgb.y + d_rgb.y, s_rgb.z + d_rgb.z),
     };
 
@@ -1136,16 +1142,16 @@ pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
         GL_FUNC_ADD => s_rgb.w + d_rgb.w,
         GL_FUNC_SUBTRACT => s_rgb.w - d_rgb.w,
         GL_FUNC_REVERSE_SUBTRACT => d_rgb.w - s_rgb.w,
-        GL_MIN => src.w.min(dst.w),
-        GL_MAX => src.w.max(dst.w),
+        GL_MIN => src.w.min_(dst.w),
+        GL_MAX => src.w.max_(dst.w),
         _ => s_rgb.w + d_rgb.w,
     };
 
     Color::from_vec4(Vec4::new(
-        r.clamp(0.0, 1.0),
-        g.clamp(0.0, 1.0),
-        b.clamp(0.0, 1.0),
-        a.clamp(0.0, 1.0),
+        r.clamp_(0.0, 1.0),
+        g.clamp_(0.0, 1.0),
+        b.clamp_(0.0, 1.0),
+        a.clamp_(0.0, 1.0),
     ))
 }
 
@@ -1247,7 +1253,7 @@ pub fn setup_fs_input(
                 // Perspective-correct interpolation:
                 //   val = (a/wa * (1-t) + b/wb * t) / ((1-t)/wa + t/wb)
                 let inv_w = one_minus_t / wa + t / wb;
-                if inv_w.abs() > 1e-10 {
+                if inv_w.abs_() > 1e-10 {
                     let val = v1_out[j] / wa * one_minus_t + v2_out[j] / wb * t;
                     c.fs_input[j] = val / inv_w;
                 } else {
@@ -1296,7 +1302,7 @@ fn setup_fs_input_triangle(
                     + beta * v1_out[j] / w1
                     + gamma * v2_out[j] / w2;
                 let w_interp = alpha / w0 + beta / w1 + gamma / w2;
-                if w_interp.abs() > 1e-10 {
+                if w_interp.abs_() > 1e-10 {
                     c.fs_input[j] = val / w_interp;
                 } else {
                     c.fs_input[j] =
@@ -1493,10 +1499,10 @@ pub fn draw_thick_line(
     let y2 = hp2.y;
     let z2 = hp2.z;
 
-    let steep_x = (x2 - x1).abs();
-    let steep_y = (y2 - y1).abs();
+    let steep_x = (x2 - x1).abs_();
+    let steep_y = (y2 - y1).abs_();
 
-    let line_w = c.line_width.max(1.0) as i32;
+    let line_w = c.line_width.max_(1.0) as i32;
     let half_w = line_w / 2;
 
     let vs_output_size = c.vs_output.size as usize;
@@ -1520,8 +1526,8 @@ pub fn draw_thick_line(
         let dy = _ey - sy;
         let slope = dy / dx;
 
-        let x_start = sx.ceil() as i32;
-        let x_end = ex.ceil() as i32;
+        let x_start = sx.ceil_() as i32;
+        let x_end = ex.ceil_() as i32;
 
         for x in x_start..x_end {
             let t = (x as f32 - sx) / dx;
@@ -1583,8 +1589,8 @@ pub fn draw_thick_line(
         let dx = _ex - sx;
         let slope = dx / dy;
 
-        let y_start = sy.ceil() as i32;
-        let y_end = ey.ceil() as i32;
+        let y_start = sy.ceil_() as i32;
+        let y_end = ey.ceil_() as i32;
 
         for y in y_start..y_end {
             let t = (y as f32 - sy) / dy;
@@ -1658,7 +1664,7 @@ pub fn draw_thick_line(
     let y2 = hp2.y;
     let z2 = hp2.z;
 
-    let line_w = c.line_width.max(1.0);
+    let line_w = c.line_width.max_(1.0);
     let half_w = line_w * 0.5;
 
     let vs_output_size = c.vs_output.size as usize;
@@ -1670,7 +1676,7 @@ pub fn draw_thick_line(
     // Compute perpendicular direction
     let dx = x2 - x1;
     let dy = y2 - y1;
-    let line_len = (dx * dx + dy * dy).sqrt();
+    let line_len = (dx * dx + dy * dy).sqrt_();
     if line_len < 0.001 {
         return;
     }
@@ -1690,10 +1696,10 @@ pub fn draw_thick_line(
     let py3 = y2 - ny * half_w;
 
     // Bounding box
-    let min_x = px0.min(px1).min(px2).min(px3).floor() as i32;
-    let max_x = px0.max(px1).max(px2).max(px3).ceil() as i32;
-    let min_y = py0.min(py1).min(py2).min(py3).floor() as i32;
-    let max_y = py0.max(py1).max(py2).max(py3).ceil() as i32;
+    let min_x = px0.min_(px1).min_(px2).min_(px3).floor_() as i32;
+    let max_x = px0.max_(px1).max_(px2).max_(px3).ceil_() as i32;
+    let min_y = py0.min_(py1).min_(py2).min_(py3).floor_() as i32;
+    let max_y = py0.max_(py1).max_(py2).max_(py3).ceil_() as i32;
 
     let min_x = min_x.max(c.lx);
     let max_x = max_x.min(c.ux);
@@ -1716,7 +1722,7 @@ pub fn draw_thick_line(
             }
 
             // Distance from line
-            let dist = ((px - x1) * nx + (py - y1) * ny).abs();
+            let dist = ((px - x1) * nx + (py - y1) * ny).abs_();
             if dist > half_w {
                 continue;
             }
@@ -1777,7 +1783,7 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
     let hp = vert.clip_space.to_vec3h();
     let screen = c.vp_mat * Vec4::new(hp.x, hp.y, hp.z, 1.0);
 
-    let point_size = c.point_size.max(1.0);
+    let point_size = c.point_size.max_(1.0);
     let half = (point_size / 2.0) as i32;
     let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
@@ -1876,7 +1882,7 @@ pub fn calc_poly_offset(
     let dz02 = hp2.z - hp0.z;
 
     let det = dx01 * dy02 - dx02 * dy01;
-    if det.abs() < 1e-10 {
+    if det.abs_() < 1e-10 {
         return poly_units * (1.0 / (1u32 << 24) as f32);
     }
 
@@ -1884,7 +1890,7 @@ pub fn calc_poly_offset(
     let dz_dx = (dz01 * dy02 - dz02 * dy01) * inv_det;
     let dz_dy = (dx01 * dz02 - dx02 * dz01) * inv_det;
 
-    let max_slope = dz_dx.abs().max(dz_dy.abs());
+    let max_slope = dz_dx.abs_().max_(dz_dy.abs_());
 
     poly_factor * max_slope + poly_units * (1.0 / (1u32 << 24) as f32)
 }
@@ -2099,7 +2105,7 @@ fn clip_lerp_factor(clip_bit: i32, a: &Vec4, b: &Vec4) -> f32 {
         }
         _ => 0.0,
     };
-    t.clamp(0.0, 1.0)
+    t.clamp_(0.0, 1.0)
 }
 
 /// Interpolate between two vertices at parameter `t` (0 = v0, 1 = v1).
@@ -2158,10 +2164,10 @@ pub fn draw_triangle_fill(
     };
 
     // Bounding box
-    let min_x = p0.x.min(p1.x).min(p2.x).floor() as i32;
-    let max_x = p0.x.max(p1.x).max(p2.x).ceil() as i32;
-    let min_y = p0.y.min(p1.y).min(p2.y).floor() as i32;
-    let max_y = p0.y.max(p1.y).max(p2.y).ceil() as i32;
+    let min_x = p0.x.min_(p1.x).min_(p2.x).floor_() as i32;
+    let max_x = p0.x.max_(p1.x).max_(p2.x).ceil_() as i32;
+    let min_y = p0.y.min_(p1.y).min_(p2.y).floor_() as i32;
+    let max_y = p0.y.max_(p1.y).max_(p2.y).ceil_() as i32;
 
     // Clamp to viewport/scissor bounds
     let min_x = min_x.max(c.lx);
@@ -2184,7 +2190,7 @@ pub fn draw_triangle_fill(
     let beta_denom = l20.func(p1.x, p1.y);
     let gamma_denom = l01.func(p2.x, p2.y);
 
-    if alpha_denom.abs() < 1e-10 || beta_denom.abs() < 1e-10 || gamma_denom.abs() < 1e-10 {
+    if alpha_denom.abs_() < 1e-10 || beta_denom.abs_() < 1e-10 || gamma_denom.abs_() < 1e-10 {
         return; // Degenerate triangle
     }
 

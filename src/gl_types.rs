@@ -3,7 +3,10 @@
 #![allow(non_upper_case_globals, non_camel_case_types, non_snake_case, dead_code)]
 
 use crate::math::{Vec2, Vec4};
-use std::ffi::c_void;
+use core::ffi::c_void;
+
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
 
 // ---------------------------------------------------------------------------
 // GL Type Aliases
@@ -582,7 +585,7 @@ impl Default for GlProgram {
         Self {
             vertex_shader: default_vert_shader,
             fragment_shader: default_frag_shader,
-            uniform: std::ptr::null_mut(),
+            uniform: core::ptr::null_mut(),
             vs_output_size: 0,
             interpolation: [PGL_SMOOTH; GL_MAX_VERTEX_OUTPUT_COMPONENTS],
             fragdepth_or_discard: false,
@@ -640,7 +643,7 @@ pub struct GlVertexArray {
 impl Default for GlVertexArray {
     fn default() -> Self {
         Self {
-            vertex_attribs: std::array::from_fn(|_| GlVertexAttrib::default()),
+            vertex_attribs: core::array::from_fn(|_| GlVertexAttrib::default()),
             element_buffer: 0,
             deleted: false,
         }
@@ -744,7 +747,7 @@ impl Default for VertexShaderOutput {
     fn default() -> Self {
         Self {
             size: 0,
-            interpolation: std::ptr::null(),
+            interpolation: core::ptr::null(),
             output_buf: Vec::new(),
         }
     }

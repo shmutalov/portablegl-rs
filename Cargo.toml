@@ -5,6 +5,9 @@ edition = "2021"
 description = "A pure Rust software implementation of OpenGL 3.x core profile, ported from PortableGL"
 license = "MIT"
 
+[dependencies]
+libm = { version = "0.2", optional = true }
+
 [features]
 default = ["abgr32", "d24s8"]
 
@@ -20,6 +23,9 @@ bgr565 = []
 d24s8 = []
 d16 = []
 no_depth = []
+
+# no_std support (requires alloc)
+no_std = ["dep:libm"]
 
 # Optional features
 no_stencil = []

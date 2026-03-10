@@ -3,7 +3,9 @@
 //! All matrix types use column-major storage for OpenGL compatibility.
 //! Types are `#[repr(C)]` for FFI compatibility with the original C library.
 
-use std::ops;
+use core::ops;
+
+use crate::float_math::F32Ext;
 
 // ---------------------------------------------------------------------------
 // Utility free functions
@@ -58,7 +60,7 @@ impl Vec2 {
 
     #[inline]
     pub fn len(self) -> f32 {
-        (self.x * self.x + self.y * self.y).sqrt()
+        (self.x * self.x + self.y * self.y).sqrt_()
     }
 
     #[inline]
@@ -246,7 +248,7 @@ impl Vec3 {
 
     #[inline]
     pub fn len(self) -> f32 {
-        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt()
+        (self.x * self.x + self.y * self.y + self.z * self.z).sqrt_()
     }
 
     #[inline]
@@ -827,7 +829,7 @@ impl Line {
     /// `(x, y)` to the line.
     #[inline]
     pub fn normalize(&mut self) {
-        let l = (self.a * self.a + self.b * self.b).sqrt();
+        let l = (self.a * self.a + self.b * self.b).sqrt_();
         if l != 0.0 {
             self.a /= l;
             self.b /= l;
@@ -861,7 +863,7 @@ mod tests {
     #[test]
     fn test_rsw_mapf() {
         let v = rsw_mapf(0.5, 0.0, 1.0, 0.0, 10.0);
-        assert!((v - 5.0).abs() < 1e-6);
+        assert!((v - 5.0).abs_() < 1e-6);
     }
 
     #[test]
@@ -869,9 +871,9 @@ mod tests {
         let a = Vec3::new(1.0, 0.0, 0.0);
         let b = Vec3::new(0.0, 1.0, 0.0);
         let c = Vec3::cross(a, b);
-        assert!((c.x).abs() < 1e-6);
-        assert!((c.y).abs() < 1e-6);
-        assert!((c.z - 1.0).abs() < 1e-6);
+        assert!((c.x).abs_() < 1e-6);
+        assert!((c.y).abs_() < 1e-6);
+        assert!((c.z - 1.0).abs_() < 1e-6);
     }
 
     #[test]
@@ -879,10 +881,10 @@ mod tests {
         let m = Mat4::identity();
         let v = Vec4::new(1.0, 2.0, 3.0, 1.0);
         let r = m * v;
-        assert!((r.x - 1.0).abs() < 1e-6);
-        assert!((r.y - 2.0).abs() < 1e-6);
-        assert!((r.z - 3.0).abs() < 1e-6);
-        assert!((r.w - 1.0).abs() < 1e-6);
+        assert!((r.x - 1.0).abs_() < 1e-6);
+        assert!((r.y - 2.0).abs_() < 1e-6);
+        assert!((r.z - 3.0).abs_() < 1e-6);
+        assert!((r.w - 1.0).abs_() < 1e-6);
     }
 
     #[test]
@@ -890,8 +892,8 @@ mod tests {
         let m = make_viewport_matrix(0, 0, 800, 600, 0);
         let ndc = Vec4::new(0.0, 0.0, 0.0, 1.0);
         let screen = m * ndc;
-        assert!((screen.x - 400.0).abs() < 1e-3);
-        assert!((screen.y - 300.0).abs() < 1e-3);
+        assert!((screen.x - 400.0).abs_() < 1e-3);
+        assert!((screen.y - 300.0).abs_() < 1e-3);
     }
 
     #[test]
@@ -907,7 +909,7 @@ mod tests {
         // Horizontal line y=1: points (0,1) and (2,1)
         let l = Line::new(0.0, 1.0, 2.0, 1.0);
         // Points on the line evaluate to 0
-        assert!((l.func(1.0, 1.0)).abs() < 1e-6);
+        assert!((l.func(1.0, 1.0)).abs_() < 1e-6);
         // Point above the line
         assert!(l.func(1.0, 2.0) != 0.0);
     }
@@ -916,8 +918,8 @@ mod tests {
     fn test_vec4_to_vec3h() {
         let v = Vec4::new(2.0, 4.0, 6.0, 2.0);
         let v3 = v.to_vec3h();
-        assert!((v3.x - 1.0).abs() < 1e-6);
-        assert!((v3.y - 2.0).abs() < 1e-6);
-        assert!((v3.z - 3.0).abs() < 1e-6);
+        assert!((v3.x - 1.0).abs_() < 1e-6);
+        assert!((v3.y - 2.0).abs_() < 1e-6);
+        assert!((v3.z - 3.0).abs_() < 1e-6);
     }
 }

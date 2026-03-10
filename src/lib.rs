@@ -1,3 +1,9 @@
+#![cfg_attr(feature = "no_std", no_std)]
+
+#[cfg(feature = "no_std")]
+extern crate alloc;
+
+pub mod float_math;
 pub mod math;
 pub mod gl_types;
 pub mod gl_context;

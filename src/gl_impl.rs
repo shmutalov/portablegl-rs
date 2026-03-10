@@ -8,7 +8,12 @@ use crate::gl_context::*;
 use crate::gl_internal;
 use crate::gl_types::*;
 use crate::math::*;
-use std::ffi::c_void;
+use core::ffi::c_void;
+
+#[cfg(feature = "no_std")]
+use alloc::vec;
+#[cfg(feature = "no_std")]
+use alloc::vec::Vec;
 
 // ---------------------------------------------------------------------------
 // Helper: set error and return
@@ -653,18 +658,18 @@ impl GlContext {
             Some(i) => i,
             None => {
                 set_err!(self, GL_INVALID_ENUM);
-                return std::ptr::null_mut();
+                return core::ptr::null_mut();
             }
         };
         let buf_id = self.bound_buffers[ti];
         if buf_id == 0 {
             set_err!(self, GL_INVALID_OPERATION);
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         let idx = buf_id as usize;
         if idx >= self.buffers.len() || self.buffers[idx].deleted {
             set_err!(self, GL_INVALID_OPERATION);
-            return std::ptr::null_mut();
+            return core::ptr::null_mut();
         }
         self.buffers[idx].data.as_mut_ptr() as *mut c_void
     }
