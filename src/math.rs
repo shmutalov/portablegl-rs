@@ -993,6 +993,44 @@ pub fn scale_m4(m: &mut Mat4, sx: f32, sy: f32, sz: f32) {
     }
 }
 
+/// Create a translation matrix.
+pub fn translation_m4(x: f32, y: f32, z: f32) -> Mat4 {
+    // Column-major layout
+    Mat4([
+        1.0, 0.0, 0.0, 0.0,
+        0.0, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 0.0,
+          x,   y,   z, 1.0,
+    ])
+}
+
+/// Create a rotation matrix around an arbitrary axis.
+pub fn load_rotation_m4(v: Vec3, angle: f32) -> Mat4 {
+    use crate::float_math::{sin, cos};
+    let s = sin(angle);
+    let c = cos(angle);
+    let v = v.normalize();
+
+    let xx = v.x * v.x;
+    let yy = v.y * v.y;
+    let zz = v.z * v.z;
+    let xy = v.x * v.y;
+    let yz = v.y * v.z;
+    let zx = v.z * v.x;
+    let xs = v.x * s;
+    let ys = v.y * s;
+    let zs = v.z * s;
+    let one_c = 1.0 - c;
+
+    // Column-major layout
+    Mat4([
+        (one_c * xx) + c,   (one_c * xy) + zs, (one_c * zx) - ys, 0.0,
+        (one_c * xy) - zs,  (one_c * yy) + c,  (one_c * yz) + xs, 0.0,
+        (one_c * zx) + ys,  (one_c * yz) - xs, (one_c * zz) + c,  0.0,
+        0.0,                 0.0,                0.0,                1.0,
+    ])
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

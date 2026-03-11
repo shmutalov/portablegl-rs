@@ -10,6 +10,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 libm = { version = "0.2", optional = true }
+minifb = { version = "0.28", optional = true }
 
 [features]
 default = ["abgr32", "d24s8"]
@@ -36,6 +37,22 @@ unsafe_mode = []
 hermite_smoothing = []
 better_thick_lines = []
 ffi = []
+examples = ["dep:minifb"]
 
 [dev-dependencies]
 png = "0.17"
+
+[[example]]
+name = "hello_triangle"
+path = "examples/hello_triangle.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "colored_triangle"
+path = "examples/colored_triangle.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "spinning_triangle"
+path = "examples/spinning_triangle.rs"
+required-features = ["examples"]
