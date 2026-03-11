@@ -50,9 +50,7 @@ jobs:
 
       - name: Check (no_std)
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: |
-          rustup target add thumbv7em-none-eabihf
-          cargo check --target thumbv7em-none-eabihf --features no_std --lib
+        run: cargo rustc --target ${{ matrix.target }} --features no_std --crate-type lib
 
       - name: Run tests
         run: cargo test --target ${{ matrix.target }} --release
