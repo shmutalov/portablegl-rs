@@ -671,7 +671,27 @@ impl GlContext {
             set_err!(self, GL_INVALID_OPERATION);
             return core::ptr::null_mut();
         }
-        self.buffers[idx].data.as_mut_ptr() as *mut c_void
+        let buf = &mut self.buffers[idx];
+        if !buf.user_data.is_null() {
+            buf.user_data as *mut c_void
+        } else {
+            buf.data.as_mut_ptr() as *mut c_void
+        }
+    }
+
+    /// Map a named buffer object's data store.
+    pub fn gl_map_named_buffer(&mut self, buffer: GLuint, _access: GLenum) -> *mut c_void {
+        let idx = buffer as usize;
+        if idx >= self.buffers.len() || self.buffers[idx].deleted {
+            set_err!(self, GL_INVALID_OPERATION);
+            return core::ptr::null_mut();
+        }
+        let buf = &mut self.buffers[idx];
+        if !buf.user_data.is_null() {
+            buf.user_data as *mut c_void
+        } else {
+            buf.data.as_mut_ptr() as *mut c_void
+        }
     }
 
     /// Unmap a previously mapped buffer. Always returns GL_TRUE in this
@@ -1250,7 +1270,7 @@ impl GlContext {
             return;
         }
         self.prepare_draw();
-        gl_internal::run_pipeline(self, mode, first, count, 1, 0, false);
+        gl_internal::run_pipeline(self, mode, first as usize, count, 1, 0, false);
     }
 
     pub fn gl_draw_elements(
@@ -1267,7 +1287,7 @@ impl GlContext {
             return;
         }
         self.prepare_draw();
-        gl_internal::run_pipeline(self, mode, indices as GLint, count, 1, 0, true);
+        gl_internal::run_pipeline(self, mode, indices, count, 1, 0, true);
     }
 
     pub fn gl_draw_arrays_instanced(
@@ -1285,7 +1305,7 @@ impl GlContext {
         }
         self.prepare_draw();
         for inst in 0..instancecount {
-            gl_internal::run_pipeline(self, mode, first, count, (inst + 1) as GLuint, 0, false);
+            gl_internal::run_pipeline(self, mode, first as usize, count, inst as GLuint, 0, false);
         }
     }
 
@@ -1305,7 +1325,7 @@ impl GlContext {
         }
         self.prepare_draw();
         for inst in 0..instancecount {
-            gl_internal::run_pipeline(self, mode, indices as GLint, count, (inst + 1) as GLuint, 0, true);
+            gl_internal::run_pipeline(self, mode, indices, count, inst as GLuint, 0, true);
         }
     }
 
@@ -1328,9 +1348,9 @@ impl GlContext {
             gl_internal::run_pipeline(
                 self,
                 mode,
-                first,
+                first as usize,
                 count,
-                (inst + 1) as GLuint,
+                inst as GLuint,
                 baseinstance,
                 false,
             );
@@ -1357,9 +1377,9 @@ impl GlContext {
             gl_internal::run_pipeline(
                 self,
                 mode,
-                indices as GLint,
+                indices,
                 count,
-                (inst + 1) as GLuint,
+                inst as GLuint,
                 baseinstance,
                 true,
             );
@@ -1382,7 +1402,7 @@ impl GlContext {
         }
         self.prepare_draw();
         // base_vertex is handled by the pipeline's vertex stage
-        gl_internal::run_pipeline(self, mode, indices as GLint, count, 1, 0, true);
+        gl_internal::run_pipeline(self, mode, indices, count, 1, 0, true);
     }
 
     pub fn gl_multi_draw_arrays(&mut self, mode: GLenum, first: &[GLint], count: &[GLsizei]) {
@@ -1456,17 +1476,17 @@ impl GlContext {
                 }
             }
         } else {
-            // Clear only within scissor region
-            let sx = self.scissor_lx.max(0) as usize;
-            let sy = self.scissor_ly.max(0) as usize;
-            let sw = self.scissor_w as usize;
-            let sh = self.scissor_h as usize;
-            let bw = w as usize;
-            let bh = h as usize;
+            // Clear only within scissor region (uses lastrow Y-flip addressing)
+            let sx = self.scissor_lx.max(0);
+            let sy = self.scissor_ly.max(0);
+            let sw = self.scissor_w;
+            let sh = self.scissor_h;
+            let bw = w;
+            let bh = h;
 
             for row in sy..(sy + sh).min(bh) {
                 for col in sx..(sx + sw).min(bw) {
-                    let i = row * bw + col;
+                    let i = ((bh - 1 - row) * bw + col) as usize;
                     if do_color {
                         let existing = read_pixel(&self.back_buffer.buf, i);
                         let masked =

@@ -36,3 +36,6 @@ unsafe_mode = []
 hermite_smoothing = []
 better_thick_lines = []
 ffi = []
+
+[dev-dependencies]
+png = "0.17"

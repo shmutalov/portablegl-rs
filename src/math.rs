@@ -728,15 +728,19 @@ pub fn mult_m4_v4(m: Mat4, v: Vec4) -> Vec4 {
 pub fn make_viewport_matrix(x: i32, y: i32, w: i32, h: i32, half_z: i32) -> Mat4 {
     let wf = w as f32;
     let hf = h as f32;
-    let xf = x as f32;
-    let yf = y as f32;
+    let l = x as f32;
+    let b = y as f32;
+
+    // Match C PortableGL: epsilon to keep range [l, l+w) x [b, b+h) within bounds
+    let r = l + wf - 0.01;
+    let t = b + hf - 0.01;
 
     let mut m = [0.0f32; 16];
-    m[0]  = wf / 2.0;
-    m[5]  = hf / 2.0;
+    m[0]  = (r - l) / 2.0;
+    m[5]  = (t - b) / 2.0;
     m[10] = if half_z != 0 { 0.5 } else { 1.0 };
-    m[12] = xf + wf / 2.0;
-    m[13] = yf + hf / 2.0;
+    m[12] = (l + r) / 2.0;
+    m[13] = (b + t) / 2.0;
     m[14] = if half_z != 0 { 0.5 } else { 0.0 };
     m[15] = 1.0;
     Mat4(m)
@@ -839,6 +843,157 @@ impl Line {
 }
 
 // ===========================================================================
+// Additional free functions used by tests and std shaders
+// ===========================================================================
+
+/// Convenience: make a Vec2.
+#[inline]
+pub fn make_v2(x: f32, y: f32) -> Vec2 {
+    Vec2 { x, y }
+}
+
+/// Convenience: make a Vec3.
+#[inline]
+pub fn make_v3(x: f32, y: f32, z: f32) -> Vec3 {
+    Vec3 { x, y, z }
+}
+
+/// Convenience: make a Vec4.
+#[inline]
+pub fn make_v4(x: f32, y: f32, z: f32, w: f32) -> Vec4 {
+    Vec4 { x, y, z, w }
+}
+
+/// Extract xy from a Vec4 as Vec2.
+#[inline]
+pub fn v4_to_v2(v: Vec4) -> Vec2 {
+    Vec2 { x: v.x, y: v.y }
+}
+
+/// Perspective-divide: xyz / w.
+#[inline]
+pub fn v4_to_v3h(v: Vec4) -> Vec3 {
+    v.to_vec3h()
+}
+
+/// Multiply a Vec4 by a scalar.
+#[inline]
+pub fn mult_v4s(v: Vec4, c: Vec4) -> Vec4 {
+    Vec4 {
+        x: v.x * c.x,
+        y: v.y * c.y,
+        z: v.z * c.z,
+        w: v.w * c.w,
+    }
+}
+
+/// Scale a Vec4 by a scalar float.
+#[inline]
+pub fn scale_v4_f(v: Vec4, s: f32) -> Vec4 {
+    Vec4 {
+        x: v.x * s,
+        y: v.y * s,
+        z: v.z * s,
+        w: v.w * s,
+    }
+}
+
+/// Multiply Mat3 by Vec3.
+#[inline]
+pub fn mult_m3_v3(m: Mat3, v: Vec3) -> Vec3 {
+    let d = &m.0;
+    Vec3 {
+        x: d[0] * v.x + d[3] * v.y + d[6] * v.z,
+        y: d[1] * v.x + d[4] * v.y + d[7] * v.z,
+        z: d[2] * v.x + d[5] * v.y + d[8] * v.z,
+    }
+}
+
+/// Multiply two Mat4 matrices: result = a * b.
+#[inline]
+pub fn mult_m4_m4(a: Mat4, b: Mat4) -> Mat4 {
+    let mut r = [0.0f32; 16];
+    let am = &a.0;
+    let bm = &b.0;
+    for c in 0..4 {
+        for row in 0..4 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                sum += am[k * 4 + row] * bm[c * 4 + k];
+            }
+            r[c * 4 + row] = sum;
+        }
+    }
+    Mat4(r)
+}
+
+/// Build a perspective projection matrix (column-major).
+/// `fov` is in radians.
+#[inline]
+pub fn make_perspective_m4(fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+    let t = (fov / 2.0).tan_();
+    let mut m = [0.0f32; 16];
+    m[0] = 1.0 / (aspect * t);
+    m[5] = 1.0 / t;
+    m[10] = -(far + near) / (far - near);
+    m[11] = -1.0;
+    m[14] = -(2.0 * far * near) / (far - near);
+    Mat4(m)
+}
+
+/// Build an orthographic projection matrix (column-major).
+#[inline]
+pub fn make_orthographic_m4(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> Mat4 {
+    let mut m = [0.0f32; 16];
+    m[0] = 2.0 / (r - l);
+    m[5] = 2.0 / (t - b);
+    m[10] = -2.0 / (f - n);
+    m[12] = -(r + l) / (r - l);
+    m[13] = -(t + b) / (t - b);
+    m[14] = -(f + n) / (f - n);
+    m[15] = 1.0;
+    Mat4(m)
+}
+
+/// Build a look-at view matrix.
+pub fn look_at(eye: Vec3, center: Vec3, up: Vec3) -> Mat4 {
+    let f = norm_v3(sub_v3s(center, eye));
+    let s = norm_v3(Vec3::cross(f, up));
+    let u = Vec3::cross(s, f);
+
+    let mut m = [0.0f32; 16];
+    m[0] = s.x;   m[4] = s.y;   m[8]  = s.z;
+    m[1] = u.x;   m[5] = u.y;   m[9]  = u.z;
+    m[2] = -f.x;  m[6] = -f.y;  m[10] = -f.z;
+    m[12] = -dot_v3s(s, eye);
+    m[13] = -dot_v3s(u, eye);
+    m[14] = dot_v3s(f, eye);
+    m[15] = 1.0;
+    Mat4(m)
+}
+
+/// Convert degrees to radians.
+#[inline]
+pub fn radians(deg: f32) -> f32 {
+    deg * core::f32::consts::PI / 180.0
+}
+
+/// Scale a Mat4 in-place by sx, sy, sz.
+pub fn scale_m4(m: &mut Mat4, sx: f32, sy: f32, sz: f32) {
+    let d = &mut m.0;
+    // Scale columns 0, 1, 2
+    for i in 0..4 {
+        d[0 + i] *= sx;
+    }
+    for i in 0..4 {
+        d[4 + i] *= sy;
+    }
+    for i in 0..4 {
+        d[8 + i] *= sz;
+    }
+}
+
+// ===========================================================================
 // Tests
 // ===========================================================================
 
@@ -892,8 +1047,9 @@ mod tests {
         let m = make_viewport_matrix(0, 0, 800, 600, 0);
         let ndc = Vec4::new(0.0, 0.0, 0.0, 1.0);
         let screen = m * ndc;
-        assert!((screen.x - 400.0).abs_() < 1e-3);
-        assert!((screen.y - 300.0).abs_() < 1e-3);
+        // With viewport epsilon (0.01), center = (0 + 799.99)/2 = 399.995
+        assert!((screen.x - 399.995).abs_() < 1e-3);
+        assert!((screen.y - 299.995).abs_() < 1e-3);
     }
 
     #[test]

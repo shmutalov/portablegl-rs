@@ -542,16 +542,23 @@ impl GlContext {
             return;
         }
 
-        // In the Rust port, we copy the data into a Vec for safety,
-        // but mark user_owned so the caller knows the semantics.
-        if !data.is_null() && size > 0 {
-            let slice = unsafe { core::slice::from_raw_parts(data, size as usize) };
-            self.buffers[buf_id].data = slice.to_vec();
+        if own {
+            // Library takes ownership: copy data into our Vec
+            if !data.is_null() && size > 0 {
+                let slice = unsafe { core::slice::from_raw_parts(data, size as usize) };
+                self.buffers[buf_id].data = slice.to_vec();
+            } else {
+                self.buffers[buf_id].data = Vec::new();
+            }
+            self.buffers[buf_id].user_data = core::ptr::null_mut();
+            self.buffers[buf_id].user_owned = false;
         } else {
+            // User owns the data: store the raw pointer
             self.buffers[buf_id].data = Vec::new();
+            self.buffers[buf_id].user_data = data;
+            self.buffers[buf_id].user_owned = true;
         }
         self.buffers[buf_id].size = size as GLsizei;
-        self.buffers[buf_id].user_owned = !own;
     }
 
     /// Sets buffer data from a Rust slice (safe version of `pgl_buffer_data`).

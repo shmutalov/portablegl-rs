@@ -596,13 +596,29 @@ impl Default for GlProgram {
 }
 
 /// A GPU buffer object.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct GlBuffer {
     pub size: GLsizei,
     pub type_: GLenum,
     pub data: Vec<u8>,
+    /// Raw pointer to user-owned data (set by pgl_buffer_data with own=false).
+    /// When non-null, this takes priority over `data` for reading.
+    pub user_data: *mut u8,
     pub deleted: bool,
     pub user_owned: bool,
+}
+
+impl Default for GlBuffer {
+    fn default() -> Self {
+        Self {
+            size: 0,
+            type_: 0,
+            data: Vec::new(),
+            user_data: core::ptr::null_mut(),
+            deleted: false,
+            user_owned: false,
+        }
+    }
 }
 
 /// A single vertex attribute description.

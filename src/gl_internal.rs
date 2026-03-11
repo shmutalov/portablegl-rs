@@ -30,6 +30,10 @@ use crate::math::*;
 
 const CLIP_EPSILON: f32 = 1e-5;
 
+/// Smallest depth increment for polygon offset units.
+/// Matches the C PortableGL constant used in polygon offset calculations.
+const POLYGON_OFFSET_UNIT_INCR: f32 = 0.000001;
+
 // ---------------------------------------------------------------------------
 // Pixel format masks (compile-time via cfg features)
 // ---------------------------------------------------------------------------
@@ -456,23 +460,19 @@ pub fn gl_clipcode(pt: Vec4, depth_clamp: bool) -> i32 {
 /// Determine if a triangle is front-facing based on its screen-space winding
 /// and the current front_face convention (GL_CCW or GL_CW).
 pub fn is_front_facing(v0: &GlVertex, v1: &GlVertex, v2: &GlVertex, front_face: GLenum) -> bool {
-    // Signed area using the cross product of screen-space edges.
-    // The screen_space Vec4 has x,y in pixel coords, but w may not be 1,
-    // so we use direct x,y from screen_space.
-    let x0 = v0.screen_space.x;
-    let y0 = v0.screen_space.y;
-    let x1 = v1.screen_space.x;
-    let y1 = v1.screen_space.y;
-    let x2 = v2.screen_space.x;
-    let y2 = v2.screen_space.y;
+    // Compute signed area from perspective-divided screen coordinates
+    let p0 = v4_to_v3h(v0.screen_space);
+    let p1 = v4_to_v3h(v1.screen_space);
+    let p2 = v4_to_v3h(v2.screen_space);
 
-    let mut signed_area =
-        x0 * y1 - x1 * y0 + x1 * y2 - x2 * y1 + x2 * y0 - x0 * y2;
+    let mut a = p0.x * p1.y - p1.x * p0.y
+              + p1.x * p2.y - p2.x * p1.y
+              + p2.x * p0.y - p0.x * p2.y;
 
     if front_face == GL_CW {
-        signed_area = -signed_area;
+        a = -a;
     }
-    signed_area > 0.0
+    a > 0.0
 }
 
 // ---------------------------------------------------------------------------
@@ -485,7 +485,6 @@ pub fn is_front_facing(v0: &GlVertex, v1: &GlVertex, v2: &GlVertex, front_face: 
 ///
 /// Components not present in the source are filled with (0, 0, 0, 1).
 pub fn get_v_attrib(v: &GlVertexAttrib, i: GLsizei, buffers: &[GlBuffer]) -> Vec4 {
-    let buf = &buffers[v.buf as usize];
     let num_comps = v.size as usize;
 
     // Compute stride: if 0, tightly packed
@@ -503,8 +502,21 @@ pub fn get_v_attrib(v: &GlVertexAttrib, i: GLsizei, buffers: &[GlBuffer]) -> Vec
         v.stride as usize
     };
 
-    let offset = v.offset as usize + stride * (i as usize);
-    let data = &buf.data[offset..];
+    let offset = stride * (i as usize);
+
+    // Client array: v.buf == 0 means v.offset is a raw pointer to client memory
+    let data: &[u8] = if v.buf == 0 {
+        let ptr = v.offset as *const u8;
+        unsafe { core::slice::from_raw_parts(ptr.add(offset), stride) }
+    } else {
+        let buf = &buffers[v.buf as usize];
+        if !buf.user_data.is_null() {
+            // User-owned buffer: read from raw pointer
+            unsafe { core::slice::from_raw_parts(buf.user_data.add(v.offset as usize + offset), stride) }
+        } else {
+            &buf.data[(v.offset as usize + offset)..]
+        }
+    };
 
     let mut result = Vec4::new(0.0, 0.0, 0.0, 1.0);
     let comps: [&mut f32; 4] = unsafe {
@@ -661,7 +673,7 @@ pub fn do_vertex(
 /// Run the vertex stage for all vertices in the draw call.
 pub fn vertex_stage(
     c: &mut GlContext,
-    indices: usize,
+    first_or_indices: usize,
     count: GLsizei,
     instance_id: GLsizei,
     base_instance: GLuint,
@@ -701,29 +713,53 @@ pub fn vertex_stage(
         // Determine vertex index
         let vertex_idx = if use_elems_type != 0 {
             let elem_buf_idx = c.vertex_arrays[vao_idx].element_buffer as usize;
-            let elem_data = &c.buffers[elem_buf_idx].data;
-            match use_elems_type {
-                GL_UNSIGNED_BYTE => {
-                    let off = indices + i as usize;
-                    elem_data[off] as GLsizei
+            if elem_buf_idx == 0 {
+                // Client array: first_or_indices is a raw pointer to element data
+                let ptr = first_or_indices as *const u8;
+                match use_elems_type {
+                    GL_UNSIGNED_BYTE => unsafe {
+                        *ptr.add(i as usize) as GLsizei
+                    },
+                    GL_UNSIGNED_SHORT => unsafe {
+                        let p = ptr.add((i as usize) * 2) as *const u16;
+                        *p as GLsizei
+                    },
+                    GL_UNSIGNED_INT => unsafe {
+                        let p = ptr.add((i as usize) * 4) as *const u32;
+                        *p as GLsizei
+                    },
+                    _ => i,
                 }
-                GL_UNSIGNED_SHORT => {
-                    let off = indices + (i as usize) * 2;
-                    u16::from_le_bytes([elem_data[off], elem_data[off + 1]]) as GLsizei
+            } else {
+                let elem_buf = &c.buffers[elem_buf_idx];
+                let elem_data: &[u8] = if !elem_buf.user_data.is_null() {
+                    unsafe { core::slice::from_raw_parts(elem_buf.user_data, elem_buf.size as usize) }
+                } else {
+                    &elem_buf.data
+                };
+                match use_elems_type {
+                    GL_UNSIGNED_BYTE => {
+                        let off = first_or_indices + i as usize;
+                        elem_data[off] as GLsizei
+                    }
+                    GL_UNSIGNED_SHORT => {
+                        let off = first_or_indices + (i as usize) * 2;
+                        u16::from_le_bytes([elem_data[off], elem_data[off + 1]]) as GLsizei
+                    }
+                    GL_UNSIGNED_INT => {
+                        let off = first_or_indices + (i as usize) * 4;
+                        u32::from_le_bytes([
+                            elem_data[off],
+                            elem_data[off + 1],
+                            elem_data[off + 2],
+                            elem_data[off + 3],
+                        ]) as GLsizei
+                    }
+                    _ => i,
                 }
-                GL_UNSIGNED_INT => {
-                    let off = indices + (i as usize) * 4;
-                    u32::from_le_bytes([
-                        elem_data[off],
-                        elem_data[off + 1],
-                        elem_data[off + 2],
-                        elem_data[off + 3],
-                    ]) as GLsizei
-                }
-                _ => i,
             }
         } else {
-            (indices as GLsizei) + i
+            (first_or_indices as GLsizei) + i
         };
 
         // Filter out instanced attributes for do_vertex
@@ -755,7 +791,7 @@ pub fn vertex_stage(
 pub fn run_pipeline(
     c: &mut GlContext,
     mode: GLenum,
-    first: GLint,
+    first: usize,
     count: GLsizei,
     instance_id: GLuint,
     base_instance: GLuint,
@@ -782,6 +818,11 @@ pub fn run_pipeline(
     match mode {
         GL_POINTS => {
             for i in 0..count as usize {
+                // Only clip Z, allow partial points outside XY to show
+                if c.glverts[i].clip_code & 0x3 != 0 {
+                    continue;
+                }
+                c.glverts[i].screen_space = mult_m4_v4(c.vp_mat, c.glverts[i].clip_space);
                 let vert = c.glverts[i].clone();
                 draw_point(c, &vert, 0.0);
             }
@@ -959,15 +1000,15 @@ pub fn logic_ops_pixel(logic_func: GLenum, s: u32, d: u32) -> u32 {
 ///
 /// Uses lastrow addressing where pixel index = `(height - 1 - y) * width + x`.
 pub fn fragment_processing(c: &mut GlContext, x: i32, y: i32, z: f32) -> bool {
-    let w = c.width;
-    let h = c.height;
+    let buf_w = c.back_buffer.w;
+    let buf_h = c.back_buffer.h;
 
     // Bounds check
-    if x < 0 || x >= w || y < 0 || y >= h {
+    if x < 0 || x >= buf_w || y < 0 || y >= buf_h {
         return false;
     }
 
-    let buf_idx = ((h - 1 - y) * w + x) as usize;
+    let buf_idx = ((buf_h - 1 - y) * buf_w + x) as usize;
 
     // Convert float z to integer depth
     let z_val = z_to_depth(z);
@@ -1167,8 +1208,8 @@ pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
 /// `do_frag_processing` should be true when the fragment shader may write
 /// gl_FragDepth or call discard, meaning depth/stencil tests were deferred.
 pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_processing: bool) {
-    let w = c.width;
-    let h = c.height;
+    let buf_w = c.back_buffer.w;
+    let buf_h = c.back_buffer.h;
 
     // Scissor test
     if c.scissor_test {
@@ -1181,7 +1222,7 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
         }
     }
 
-    if x < 0 || x >= w || y < 0 || y >= h {
+    if x < 0 || x >= buf_w || y < 0 || y >= buf_h {
         return;
     }
 
@@ -1191,7 +1232,7 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
         }
     }
 
-    let buf_idx = ((h - 1 - y) * w + x) as usize;
+    let buf_idx = ((buf_h - 1 - y) * buf_w + x) as usize;
 
     let dest_pixel = read_backbuf_pixel(c, buf_idx);
     let mut pixel_val;
@@ -1373,33 +1414,30 @@ pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex) {
         return;
     }
 
+    // Compute provoking vertex index (matches C pointer arithmetic)
+    let provoke = 0usize; // TODO: proper provoke index from glverts
+
     // Trivial accept: both inside
     if (cc1 | cc2) == 0 {
-        let w1 = v1.clip_space.w;
-        let w2 = v2.clip_space.w;
-        let hp1 = v1.clip_space.to_vec3h();
-        let hp2 = v2.clip_space.to_vec3h();
+        let t1 = mult_m4_v4(c.vp_mat, v1.clip_space);
+        let t2 = mult_m4_v4(c.vp_mat, v2.clip_space);
 
-        let sp1 = c.vp_mat * Vec4::new(hp1.x, hp1.y, hp1.z, 1.0);
-        let sp2 = c.vp_mat * Vec4::new(hp2.x, hp2.y, hp2.z, 1.0);
+        let hp1 = v4_to_v3h(t1);
+        let hp2 = v4_to_v3h(t2);
 
-        let poly_offset = if c.poly_offset_line {
-            c.poly_units * (1.0 / (1u32 << 24) as f32)
+        if c.line_smooth {
+            draw_aa_line(
+                c,
+                hp1, hp2, t1.w, t2.w,
+                &v1.vs_out, &v2.vs_out, provoke, 0.0,
+            );
         } else {
-            0.0
-        };
-
-        draw_thick_line(
-            c,
-            Vec3::new(sp1.x, sp1.y, sp1.z),
-            Vec3::new(sp2.x, sp2.y, sp2.z),
-            w1,
-            w2,
-            &v1.vs_out,
-            &v2.vs_out,
-            0,
-            poly_offset,
-        );
+            draw_thick_line(
+                c,
+                hp1, hp2, t1.w, t2.w,
+                &v1.vs_out, &v2.vs_out, provoke, 0.0,
+            );
+        }
         return;
     }
 
@@ -1410,41 +1448,22 @@ pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex) {
     let mut tmin = 0.0f32;
     let mut tmax = 1.0f32;
 
-    // x + w >= 0  and  -x + w >= 0
-    if !clip_line(d.x + d.w, -(p.x + p.w), &mut tmin, &mut tmax) {
-        return;
-    }
-    if !clip_line(-d.x + d.w, p.x - p.w, &mut tmin, &mut tmax) {
-        return;
-    }
-    // y + w >= 0  and  -y + w >= 0
-    if !clip_line(d.y + d.w, -(p.y + p.w), &mut tmin, &mut tmax) {
-        return;
-    }
-    if !clip_line(-d.y + d.w, p.y - p.w, &mut tmin, &mut tmax) {
-        return;
-    }
-    // z + w >= 0  and  -z + w >= 0
-    if !c.depth_clamp {
-        if !clip_line(d.z + d.w, -(p.z + p.w), &mut tmin, &mut tmax) {
-            return;
-        }
-        if !clip_line(-d.z + d.w, p.z - p.w, &mut tmin, &mut tmax) {
-            return;
-        }
-    }
+    if !clip_line(d.x + d.w, -p.x - p.w, &mut tmin, &mut tmax) { return; }
+    if !clip_line(-d.x + d.w, p.x - p.w, &mut tmin, &mut tmax) { return; }
+    if !clip_line(d.y + d.w, -p.y - p.w, &mut tmin, &mut tmax) { return; }
+    if !clip_line(-d.y + d.w, p.y - p.w, &mut tmin, &mut tmax) { return; }
+    if !clip_line(d.z + d.w, -p.z - p.w, &mut tmin, &mut tmax) { return; }
+    if !clip_line(-d.z + d.w, p.z - p.w, &mut tmin, &mut tmax) { return; }
 
     // Compute clipped endpoints in clip space
     let c1 = Vec4::add(p, d * tmin);
     let c2 = Vec4::add(p, d * tmax);
 
-    let w1 = c1.w;
-    let w2 = c2.w;
-    let hp1 = c1.to_vec3h();
-    let hp2 = c2.to_vec3h();
+    let t1 = mult_m4_v4(c.vp_mat, c1);
+    let t2 = mult_m4_v4(c.vp_mat, c2);
 
-    let sp1 = c.vp_mat * Vec4::new(hp1.x, hp1.y, hp1.z, 1.0);
-    let sp2 = c.vp_mat * Vec4::new(hp2.x, hp2.y, hp2.z, 1.0);
+    let hp1 = v4_to_v3h(t1);
+    let hp2 = v4_to_v3h(t2);
 
     // Interpolate vs_out for clipped endpoints
     let vs_size = c.vs_output.size as usize;
@@ -1456,200 +1475,421 @@ pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex) {
         v2_out_clipped[j] = v1.vs_out[j] + (v2.vs_out[j] - v1.vs_out[j]) * tmax;
     }
 
-    let poly_offset = if c.poly_offset_line {
-        c.poly_units * (1.0 / (1u32 << 24) as f32)
+    if c.line_smooth {
+        draw_aa_line(
+            c,
+            hp1, hp2, t1.w, t2.w,
+            &v1_out_clipped, &v2_out_clipped, provoke, 0.0,
+        );
     } else {
-        0.0
-    };
-
-    draw_thick_line(
-        c,
-        Vec3::new(sp1.x, sp1.y, sp1.z),
-        Vec3::new(sp2.x, sp2.y, sp2.z),
-        w1,
-        w2,
-        &v1_out_clipped,
-        &v2_out_clipped,
-        0,
-        poly_offset,
-    );
+        draw_thick_line(
+            c,
+            hp1, hp2, t1.w, t2.w,
+            &v1_out_clipped, &v2_out_clipped, provoke, 0.0,
+        );
+    }
 }
 
-/// Draw a line with width support using Bresenham-style stepping.
+/// Draw a line with width support using midpoint line algorithm.
 ///
-/// `hp1`/`hp2` are screen-space positions (x, y, z).
-/// `w1`/`w2` are the clip-space w values for perspective-correct interpolation.
-/// `v1_out`/`v2_out` are the vertex shader outputs at each endpoint.
-/// `provoke` is the provoking vertex index for flat shading.
-/// `poly_offset` is the polygon offset to apply to z values.
+/// Matches the C PortableGL algorithm: 4 slope cases with implicit line
+/// function for stepping decisions.
 #[cfg(not(feature = "better_thick_lines"))]
 pub fn draw_thick_line(
     c: &mut GlContext,
     hp1: Vec3,
     hp2: Vec3,
-    w1: f32,
-    w2: f32,
+    mut w1: f32,
+    mut w2: f32,
     v1_out: &[f32],
     v2_out: &[f32],
     provoke: usize,
     poly_offset: f32,
 ) {
-    let x1 = hp1.x;
-    let y1 = hp1.y;
-    let z1 = hp1.z;
-    let x2 = hp2.x;
-    let y2 = hp2.y;
-    let z2 = hp2.z;
+    let mut x1 = hp1.x;
+    let mut y1 = hp1.y;
+    let mut z1 = hp1.z;
+    let mut x2 = hp2.x;
+    let mut y2 = hp2.y;
+    let mut z2 = hp2.z;
 
-    let steep_x = (x2 - x1).abs_();
-    let steep_y = (y2 - y1).abs_();
+    // Always draw from left to right
+    let mut out_a = v1_out;
+    let mut out_b = v2_out;
+    if x2 < x1 {
+        core::mem::swap(&mut x1, &mut x2);
+        core::mem::swap(&mut y1, &mut y2);
+        core::mem::swap(&mut z1, &mut z2);
+        core::mem::swap(&mut w1, &mut w2);
+        core::mem::swap(&mut out_a, &mut out_b);
+    }
 
-    let line_w = c.line_width.max_(1.0) as i32;
-    let half_w = line_w / 2;
+    let m = (y2 - y1) / (x2 - x1);
+    let line = Line::new(x1, y1, x2, y2);
+
+    let p1x = x1;
+    let p1y = y1;
+    let sub_x = x2 - x1;
+    let sub_y = y2 - y1;
+    let line_length_squared = sub_x * sub_x + sub_y * sub_y;
 
     let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
-    let depth_range_near = c.depth_range_near;
-    let depth_range_far = c.depth_range_far;
     let program_idx = c.cur_program as usize;
 
-    if steep_x >= steep_y {
-        // More horizontal - step along x
-        let (sx, sy, sz, ex, _ey, ez, wa, wb, out_a, out_b) = if x1 < x2 {
-            (x1, y1, z1, x2, y2, z2, w1, w2, v1_out, v2_out)
-        } else {
-            (x2, y2, z2, x1, y1, z1, w2, w1, v2_out, v1_out)
-        };
+    let i_x1 = x1.floor_() + 0.5;
+    let i_y1 = y1.floor_() + 0.5;
+    let i_x2 = x2.floor_() + 0.5;
+    let i_y2 = y2.floor_() + 0.5;
 
-        let dx = ex - sx;
-        if dx < 0.5 {
-            return;
-        }
-        let dy = _ey - sy;
-        let slope = dy / dx;
 
-        let x_start = sx.ceil_() as i32;
-        let x_end = ex.ceil_() as i32;
 
-        for x in x_start..x_end {
-            let t = (x as f32 - sx) / dx;
-            let y_center = sy + slope * (x as f32 - sx);
-            let z = sz * (1.0 - t) + ez * t;
-            let z_mapped =
-                depth_range_near + (depth_range_far - depth_range_near) * (z + 1.0) * 0.5
-                    + poly_offset;
+    let x_min = i_x1;
+    let x_max = i_x2;
+    let (y_min, y_max) = if m <= 0.0 {
+        (i_y2, i_y1)
+    } else {
+        (i_y1, i_y2)
+    };
 
-            for yw in -half_w..=(half_w.max(0)) {
-                let yi = y_center as i32 + yw;
+    // Map z to depth range
+    z1 = rsw_mapf(z1, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
+    z2 = rsw_mapf(z2, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
 
-                if !fragdepth_or_discard {
-                    if !fragment_processing(c, x, yi, z_mapped) {
-                        continue;
+    let width = c.line_width.round();
+    let width = if width == 0.0 { 1.0 } else { width };
+    let half_w = width * 0.5;
+
+    // Helper macro-like closure for the inner fragment loop
+    // We use a nested function approach to avoid code duplication across 4 cases
+    macro_rules! process_fragment {
+        ($c:expr, $fx:expr, $fy:expr, $z:expr, $w:expr, $t:expr) => {{
+            // Use float comparison for clip test, matching C's CLIPXY_TEST macro
+            // which compares float coords against int bounds (int promoted to float)
+            let fx_val = $fx;
+            let fy_val = $fy;
+            let jx = fx_val as i32;
+            let jy = fy_val as i32;
+            if fx_val >= $c.lx as f32 && fx_val < $c.ux as f32 && fy_val >= $c.ly as f32 && fy_val < $c.uy as f32 {
+                if fragdepth_or_discard || fragment_processing($c, jx, jy, $z) {
+                    $c.builtins.gl_FragCoord = Vec4::new($fx, $fy, $z, 1.0 / $w);
+                    $c.builtins.discard = false;
+                    $c.builtins.gl_FragDepth = $z;
+                    setup_fs_input($c, $t, out_a, out_b, w1, w2, provoke);
+
+                    let program = &$c.programs[program_idx];
+                    let fs = program.fragment_shader;
+                    let uniform = program.uniform;
+                    let mut fs_input_copy: Vec<f32> = $c.fs_input[..vs_output_size].to_vec();
+                    unsafe {
+                        (fs)(
+                            fs_input_copy.as_mut_ptr(),
+                            &mut $c.builtins as *mut ShaderBuiltins,
+                            uniform,
+                        );
+                    }
+                    if !$c.builtins.discard {
+                        draw_pixel($c, $c.builtins.gl_FragColor, jx, jy,
+                            $c.builtins.gl_FragDepth, fragdepth_or_discard);
                     }
                 }
-
-                setup_fs_input(c, t, out_a, out_b, wa, wb, provoke);
-
-                c.builtins.gl_FragCoord =
-                    Vec4::new(x as f32 + 0.5, yi as f32 + 0.5, z_mapped, 1.0);
-                c.builtins.gl_FragDepth = z_mapped;
-                c.builtins.discard = false;
-
-                let program = &c.programs[program_idx];
-                let fs = program.fragment_shader;
-                let uniform = program.uniform;
-                let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
-
-                unsafe {
-                    (fs)(
-                        fs_input_copy.as_mut_ptr(),
-                        &mut c.builtins as *mut ShaderBuiltins,
-                        uniform,
-                    );
-                }
-
-                if c.builtins.discard {
-                    continue;
-                }
-
-                let cf = c.builtins.gl_FragColor;
-                let final_z = if fragdepth_or_discard {
-                    c.builtins.gl_FragDepth
-                } else {
-                    z_mapped
-                };
-
-                draw_pixel(c, cf, x, yi, final_z, fragdepth_or_discard);
             }
+        }};
+    }
+
+    if m <= -1.0 {
+        // Slope in (-inf, -1]: step along y (decreasing), x increases
+        let mut x = x_min;
+        let mut y = y_max;
+        while y >= y_min && x <= x_max {
+            let pr_x = x;
+            let pr_y = y;
+            let mut t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            t = clamp_01(t);
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
+
+            let mut j = x - half_w;
+            while j < x + half_w {
+                process_fragment!(c, j, y, z, w, t);
+                j += 1.0;
+            }
+
+            if line.func(x + 0.5, y - 1.0) < 0.0 {
+                x += 1.0;
+            }
+            y -= 1.0;
+        }
+    } else if m <= 0.0 {
+        // Slope in (-1, 0]: step along x, y decreases
+        let mut x = x_min;
+        let mut y = y_max;
+        while x <= x_max && y >= y_min {
+            let pr_x = x;
+            let pr_y = y;
+            let mut t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            t = clamp_01(t);
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
+
+            let mut j = y - half_w;
+            while j < y + half_w {
+                process_fragment!(c, x, j, z, w, t);
+                j += 1.0;
+            }
+
+            if line.func(x + 1.0, y - 0.5) > 0.0 {
+                y -= 1.0;
+            }
+            x += 1.0;
+        }
+    } else if m <= 1.0 {
+        // Slope in (0, 1]: step along x, y increases
+        let mut x = x_min;
+        let mut y = y_min;
+        while x <= x_max && y <= y_max {
+            let pr_x = x;
+            let pr_y = y;
+            let mut t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            t = clamp_01(t);
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
+
+            let mut j = y - half_w;
+            while j < y + half_w {
+                process_fragment!(c, x, j, z, w, t);
+                j += 1.0;
+            }
+
+            if line.func(x + 1.0, y + 0.5) < 0.0 {
+                y += 1.0;
+            }
+            x += 1.0;
         }
     } else {
-        // More vertical - step along y
-        let (sx, sy, sz, _ex, ey, ez, wa, wb, out_a, out_b) = if y1 < y2 {
-            (x1, y1, z1, x2, y2, z2, w1, w2, v1_out, v2_out)
-        } else {
-            (x2, y2, z2, x1, y1, z1, w2, w1, v2_out, v1_out)
-        };
+        // Slope in (1, +inf): step along y (increasing), x increases
+        let mut x = x_min;
+        let mut y = y_min;
+        while y <= y_max && x <= x_max {
+            let pr_x = x;
+            let pr_y = y;
+            let mut t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            t = clamp_01(t);
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
 
-        let dy = ey - sy;
-        if dy < 0.5 {
-            return;
+            let mut j = x - half_w;
+            while j < x + half_w {
+                process_fragment!(c, j, y, z, w, t);
+                j += 1.0;
+            }
+
+            if line.func(x + 0.5, y + 1.0) > 0.0 {
+                x += 1.0;
+            }
+            y += 1.0;
         }
-        let dx = _ex - sx;
-        let slope = dx / dy;
+    }
+}
 
-        let y_start = sy.ceil_() as i32;
-        let y_end = ey.ceil_() as i32;
+/// Anti-aliased line drawing using Xiaolin Wu's algorithm.
+///
+/// Used when `GL_LINE_SMOOTH` is enabled. Only supports width 1 for now.
+/// Uses coverage-based alpha blending for anti-aliased edges.
+pub fn draw_aa_line(
+    c: &mut GlContext,
+    hp1: Vec3,
+    hp2: Vec3,
+    mut w1: f32,
+    mut w2: f32,
+    v1_out: &[f32],
+    v2_out: &[f32],
+    provoke: usize,
+    poly_offset: f32,
+) {
+    let vs_output_size = c.vs_output.size as usize;
+    let fragdepth_or_discard = c.fragdepth_or_discard;
+    let program_idx = c.cur_program as usize;
 
-        for y in y_start..y_end {
-            let t = (y as f32 - sy) / dy;
-            let x_center = sx + slope * (y as f32 - sy);
-            let z = sz * (1.0 - t) + ez * t;
-            let z_mapped =
-                depth_range_near + (depth_range_far - depth_range_near) * (z + 1.0) * 0.5
-                    + poly_offset;
+    let mut x1 = hp1.x;
+    let mut y1 = hp1.y;
+    let mut z1 = hp1.z;
+    let mut x2 = hp2.x;
+    let mut y2 = hp2.y;
+    let mut z2 = hp2.z;
 
-            for xw in -half_w..=(half_w.max(0)) {
-                let xi = x_center as i32 + xw;
+    let mut out_a = v1_out;
+    let mut out_b = v2_out;
 
-                if !fragdepth_or_discard {
-                    if !fragment_processing(c, xi, y, z_mapped) {
-                        continue;
+    // Wu's algorithm helpers (matching C macros)
+    #[inline(always)]
+    fn ipart(x: f32) -> i32 { x as i32 }
+    #[inline(always)]
+    fn round(x: f32) -> i32 { (x + 0.5) as i32 }
+    #[inline(always)]
+    fn fpart(x: f32) -> f32 { x - (x as i32) as f32 }
+    #[inline(always)]
+    fn rfpart(x: f32) -> f32 { 1.0 - fpart(x) }
+
+    // Macro for the AA fragment processing (runs shader, applies coverage to alpha)
+    macro_rules! aa_fragment {
+        ($c:expr, $x:expr, $y:expr, $z:expr, $w:expr, $t:expr, $coverage:expr) => {{
+            let fx = $x as f32;
+            let fy = $y as f32;
+            if fx >= $c.lx as f32 && fx < $c.ux as f32 && fy >= $c.ly as f32 && fy < $c.uy as f32 {
+                if fragdepth_or_discard || fragment_processing($c, $x, $y, $z) {
+                    $c.builtins.gl_FragCoord = Vec4::new(fx, fy, $z, 1.0 / $w);
+                    $c.builtins.discard = false;
+                    $c.builtins.gl_FragDepth = $z;
+                    setup_fs_input($c, $t, out_a, out_b, w1, w2, provoke);
+
+                    let program = &$c.programs[program_idx];
+                    let fs = program.fragment_shader;
+                    let uniform = program.uniform;
+                    let mut fs_input_copy: Vec<f32> = $c.fs_input[..vs_output_size].to_vec();
+                    unsafe {
+                        (fs)(
+                            fs_input_copy.as_mut_ptr(),
+                            &mut $c.builtins as *mut ShaderBuiltins,
+                            uniform,
+                        );
+                    }
+                    if !$c.builtins.discard {
+                        $c.builtins.gl_FragColor.w *= $coverage;
+                        draw_pixel($c, $c.builtins.gl_FragColor, $x, $y,
+                            $c.builtins.gl_FragDepth, fragdepth_or_discard);
                     }
                 }
-
-                setup_fs_input(c, t, out_a, out_b, wa, wb, provoke);
-
-                c.builtins.gl_FragCoord =
-                    Vec4::new(xi as f32 + 0.5, y as f32 + 0.5, z_mapped, 1.0);
-                c.builtins.gl_FragDepth = z_mapped;
-                c.builtins.discard = false;
-
-                let program = &c.programs[program_idx];
-                let fs = program.fragment_shader;
-                let uniform = program.uniform;
-                let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
-
-                unsafe {
-                    (fs)(
-                        fs_input_copy.as_mut_ptr(),
-                        &mut c.builtins as *mut ShaderBuiltins,
-                        uniform,
-                    );
-                }
-
-                if c.builtins.discard {
-                    continue;
-                }
-
-                let cf = c.builtins.gl_FragColor;
-                let final_z = if fragdepth_or_discard {
-                    c.builtins.gl_FragDepth
-                } else {
-                    z_mapped
-                };
-
-                draw_pixel(c, cf, xi, y, final_z, fragdepth_or_discard);
             }
+        }};
+    }
+
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+
+    if dx.abs_() > dy.abs_() {
+        // Mostly horizontal: sort left to right
+        if x2 < x1 {
+            core::mem::swap(&mut x1, &mut x2);
+            core::mem::swap(&mut y1, &mut y2);
+            core::mem::swap(&mut z1, &mut z2);
+            core::mem::swap(&mut w1, &mut w2);
+            core::mem::swap(&mut out_a, &mut out_b);
+        }
+
+        let p1x = x1;
+        let p1y = y1;
+        let sub_x = x2 - x1;
+        let sub_y = y2 - y1;
+        let line_length_squared = sub_x * sub_x + sub_y * sub_y;
+
+        z1 = rsw_mapf(z1, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
+        z2 = rsw_mapf(z2, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
+
+        let gradient = dy / dx;
+        let xend = round(x1);
+        let yend = y1 + gradient * (xend as f32 - x1);
+        let xgap = rfpart(x1 + 0.5);
+        let xpxl1 = xend;
+        let ypxl1 = ipart(yend);
+
+        // First endpoint
+        let t = 0.0f32;
+        let z = z1 + poly_offset;
+        let w = w1;
+        aa_fragment!(c, xpxl1, ypxl1, z, w, t, rfpart(yend) * xgap);
+        aa_fragment!(c, xpxl1, ypxl1 + 1, z, w, t, fpart(yend) * xgap);
+
+        let mut intery = yend + gradient;
+
+        // Second endpoint
+        let xend2 = round(x2);
+        let yend2 = y2 + gradient * (xend2 as f32 - x2);
+        let xgap2 = fpart(x2 + 0.5);
+        let xpxl2 = xend2;
+        let ypxl2 = ipart(yend2);
+
+        let t2 = 1.0f32;
+        let z2_mapped = z2 + poly_offset;
+        let w2_val = w2;
+        aa_fragment!(c, xpxl2, ypxl2, z2_mapped, w2_val, t2, rfpart(yend2) * xgap2);
+        aa_fragment!(c, xpxl2, ypxl2 + 1, z2_mapped, w2_val, t2, fpart(yend2) * xgap2);
+
+        // Main loop
+        for xi in (xpxl1 + 1)..xpxl2 {
+            let pr_x = xi as f32;
+            let pr_y = intery;
+            let t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
+
+            let yi = ipart(intery);
+            aa_fragment!(c, xi, yi, z, w, t, rfpart(intery));
+            aa_fragment!(c, xi, yi + 1, z, w, t, fpart(intery));
+
+            intery += gradient;
+        }
+    } else {
+        // Mostly vertical: sort bottom to top
+        if y2 < y1 {
+            core::mem::swap(&mut x1, &mut x2);
+            core::mem::swap(&mut y1, &mut y2);
+            core::mem::swap(&mut z1, &mut z2);
+            core::mem::swap(&mut w1, &mut w2);
+            core::mem::swap(&mut out_a, &mut out_b);
+        }
+
+        let p1x = x1;
+        let p1y = y1;
+        let sub_x = x2 - x1;
+        let sub_y = y2 - y1;
+        let line_length_squared = sub_x * sub_x + sub_y * sub_y;
+
+        z1 = rsw_mapf(z1, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
+        z2 = rsw_mapf(z2, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
+
+        let gradient = dx / dy;
+        let yend = round(y1);
+        let xend = x1 + gradient * (yend as f32 - y1);
+        let ygap = rfpart(y1 + 0.5);
+        let ypxl1 = yend;
+        let xpxl1 = ipart(xend);
+
+        // First endpoint
+        let t = 0.0f32;
+        let z = z1 + poly_offset;
+        let w = w1;
+        aa_fragment!(c, xpxl1, ypxl1, z, w, t, rfpart(xend) * ygap);
+        aa_fragment!(c, xpxl1 + 1, ypxl1, z, w, t, fpart(xend) * ygap);
+
+        let mut interx = xend + gradient;
+
+        // Second endpoint
+        let yend2 = round(y2);
+        let xend2 = x2 + gradient * (yend2 as f32 - y2);
+        let ygap2 = fpart(y2 + 0.5);
+        let ypxl2 = yend2;
+        let xpxl2 = ipart(xend2);
+
+        let t2 = 1.0f32;
+        let z2_mapped = z2 + poly_offset;
+        let w2_val = w2;
+        aa_fragment!(c, xpxl2, ypxl2, z2_mapped, w2_val, t2, rfpart(xend2) * ygap2);
+        aa_fragment!(c, xpxl2 + 1, ypxl2, z2_mapped, w2_val, t2, fpart(xend2) * ygap2);
+
+        // Main loop
+        for yi in (ypxl1 + 1)..ypxl2 {
+            let pr_x = interx;
+            let pr_y = yi as f32;
+            let t = ((pr_x - p1x) * sub_x + (pr_y - p1y) * sub_y) / line_length_squared;
+            let z = (1.0 - t) * z1 + t * z2 + poly_offset;
+            let w = (1.0 - t) * w1 + t * w2;
+
+            let xi = ipart(interx);
+            aa_fragment!(c, xi, yi, z, w, t, rfpart(interx));
+            aa_fragment!(c, xi + 1, yi, z, w, t, fpart(interx));
+
+            interx += gradient;
         }
     }
 }
@@ -1796,54 +2036,63 @@ pub fn draw_thick_line(
 /// Points are drawn as axis-aligned squares centered on the vertex position.
 /// gl_PointCoord is set up for each fragment.
 pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
-    if vert.clip_code != 0 {
-        return;
-    }
+    let point = v4_to_v3h(vert.screen_space);
+    let z = rsw_mapf(
+        point.z + poly_offset,
+        -1.0,
+        1.0,
+        c.depth_range_near,
+        c.depth_range_far,
+    );
 
-    let hp = vert.clip_space.to_vec3h();
-    let screen = c.vp_mat * Vec4::new(hp.x, hp.y, hp.z, 1.0);
-
-    let point_size = c.point_size.max_(1.0);
-    let half = (point_size / 2.0) as i32;
     let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
-    let depth_range_near = c.depth_range_near;
-    let depth_range_far = c.depth_range_far;
 
-    let z = screen.z;
-    let z_mapped =
-        depth_range_near + (depth_range_far - depth_range_near) * (z + 1.0) * 0.5 + poly_offset;
+    let p_size = c.point_size;
+    let origin: f32 = if c.point_spr_origin == GL_UPPER_LEFT { -1.0 } else { 1.0 };
 
-    let cx = screen.x as i32;
-    let cy = screen.y as i32;
+    // Accounting for pixel centers at 0.5, using truncation
+    let x = point.x + 0.5;
+    let y = point.y + 0.5;
+
+    // Can easily clip whole point when point size <= 1
+    // Use float comparison matching C's CLIPXY_TEST behavior
+    if p_size <= 1.0 {
+        if x < c.lx as f32 || y < c.ly as f32 || x >= c.ux as f32 || y >= c.uy as f32 {
+            return;
+        }
+    }
 
     let program_idx = c.cur_program as usize;
-    let upper_left = c.point_spr_origin == GL_UPPER_LEFT;
+    let half_ps = p_size / 2.0;
 
-    let ps = point_size as i32;
+    let mut fi = y - half_ps;
+    while fi < y + half_ps {
+        if fi < c.ly as f32 || fi >= c.uy as f32 {
+            fi += 1.0;
+            continue;
+        }
 
-    for iy in 0..ps {
-        for ix in 0..ps {
-            let px = cx - half + ix;
-            let py = cy - half + iy;
-
-            if px < c.lx || px >= c.ux || py < c.ly || py >= c.uy {
+        let mut fj = x - half_ps;
+        while fj < x + half_ps {
+            if fj < c.lx as f32 || fj >= c.ux as f32 {
+                fj += 1.0;
                 continue;
             }
 
+            let px = fj as i32;
+            let py = fi as i32;
+
             if !fragdepth_or_discard {
-                if !fragment_processing(c, px, py, z_mapped) {
+                if !fragment_processing(c, px, py, z) {
+                    fj += 1.0;
                     continue;
                 }
             }
 
-            // Compute gl_PointCoord
-            let pcx = (ix as f32 + 0.5) / point_size;
-            let pcy = if upper_left {
-                (iy as f32 + 0.5) / point_size
-            } else {
-                1.0 - (iy as f32 + 0.5) / point_size
-            };
+            // Compute gl_PointCoord per spec
+            let pcx = 0.5 + (px as f32 + 0.5 - point.x) / p_size;
+            let pcy = 0.5 + origin * (py as f32 + 0.5 - point.y) / p_size;
             c.builtins.gl_PointCoord = Vec2::new(pcx, pcy);
 
             // Copy vertex outputs to fs_input (points use flat shading for all)
@@ -1852,8 +2101,8 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             }
 
             c.builtins.gl_FragCoord =
-                Vec4::new(px as f32 + 0.5, py as f32 + 0.5, z_mapped, 1.0);
-            c.builtins.gl_FragDepth = z_mapped;
+                Vec4::new(fj, fi, z, 1.0 / vert.screen_space.w);
+            c.builtins.gl_FragDepth = z;
             c.builtins.discard = false;
 
             let program = &c.programs[program_idx];
@@ -1870,6 +2119,7 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             }
 
             if c.builtins.discard {
+                fj += 1.0;
                 continue;
             }
 
@@ -1877,11 +2127,13 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             let final_z = if fragdepth_or_discard {
                 c.builtins.gl_FragDepth
             } else {
-                z_mapped
+                z
             };
 
             draw_pixel(c, cf, px, py, final_z, fragdepth_or_discard);
+            fj += 1.0;
         }
+        fi += 1.0;
     }
 }
 
@@ -1909,7 +2161,7 @@ pub fn calc_poly_offset(
 
     let det = dx01 * dy02 - dx02 * dy01;
     if det.abs_() < 1e-10 {
-        return poly_units * (1.0 / (1u32 << 24) as f32);
+        return poly_units * POLYGON_OFFSET_UNIT_INCR;
     }
 
     let inv_det = 1.0 / det;
@@ -1918,7 +2170,7 @@ pub fn calc_poly_offset(
 
     let max_slope = dz_dx.abs_().max_(dz_dy.abs_());
 
-    poly_factor * max_slope + poly_units * (1.0 / (1u32 << 24) as f32)
+    poly_factor * max_slope + poly_units * POLYGON_OFFSET_UNIT_INCR
 }
 
 // ---------------------------------------------------------------------------
@@ -1943,6 +2195,13 @@ pub fn draw_triangle(
         return;
     }
 
+    // Set edge flags (needed for GL_LINE polygon mode wireframe rendering).
+    // Must set here because vertices can be reused for multiple triangles
+    // in STRIP and FAN modes.
+    c.glverts[v0_idx].edge_flag = 1;
+    c.glverts[v1_idx].edge_flag = 1;
+    c.glverts[v2_idx].edge_flag = 1;
+
     // Trivial accept: all three inside
     if (cc0 | cc1 | cc2) == 0 {
         let v0 = c.glverts[v0_idx].clone();
@@ -1966,18 +2225,15 @@ pub fn draw_triangle_final(
     v2: &GlVertex,
     provoke: usize,
 ) {
-    // Compute screen space via perspective divide + viewport transform
+    // Compute screen space: viewport transform on clip space (preserves w for perspective)
+    // v4_to_v3h(screen_space) gives pixel coords, screen_space.w = clip_space.w
     let mut sv0 = v0.clone();
     let mut sv1 = v1.clone();
     let mut sv2 = v2.clone();
 
-    let hp0 = v0.clip_space.to_vec3h();
-    let hp1 = v1.clip_space.to_vec3h();
-    let hp2 = v2.clip_space.to_vec3h();
-
-    sv0.screen_space = c.vp_mat * Vec4::new(hp0.x, hp0.y, hp0.z, 1.0);
-    sv1.screen_space = c.vp_mat * Vec4::new(hp1.x, hp1.y, hp1.z, 1.0);
-    sv2.screen_space = c.vp_mat * Vec4::new(hp2.x, hp2.y, hp2.z, 1.0);
+    sv0.screen_space = mult_m4_v4(c.vp_mat, v0.clip_space);
+    sv1.screen_space = mult_m4_v4(c.vp_mat, v1.clip_space);
+    sv2.screen_space = mult_m4_v4(c.vp_mat, v2.clip_space);
 
     // Face culling
     let front_facing = is_front_facing(&sv0, &sv1, &sv2, c.front_face);
@@ -2052,49 +2308,53 @@ pub fn draw_triangle_clip(
 
     if num_outside == 1 {
         // One vertex outside: clip into 2 triangles
-        // Rotate so the outside vertex is first
-        let (out_v, in_v1, in_v2) = if v0_outside {
-            (&v0, &v1, &v2)
+        // Rotate so the outside vertex is q[0], inside are q[1], q[2]
+        let (q0, q1, mut q2) = if v0_outside {
+            (v0, v1, v2)
         } else if v1_outside {
-            (&v1, &v2, &v0)
+            (v1, v2, v0)
         } else {
-            (&v2, &v0, &v1)
+            (v2, v0, v1)
         };
 
-        let t1 = clip_lerp_factor(clip_bit, &out_v.clip_space, &in_v1.clip_space);
-        let t2 = clip_lerp_factor(clip_bit, &out_v.clip_space, &in_v2.clip_space);
+        let t1 = clip_lerp_factor(clip_bit, &q0.clip_space, &q1.clip_space);
+        let t2 = clip_lerp_factor(clip_bit, &q0.clip_space, &q2.clip_space);
 
-        let new_v1 = interpolate_vertex(out_v, in_v1, t1, c.depth_clamp);
-        let new_v2 = interpolate_vertex(out_v, in_v2, t2, c.depth_clamp);
+        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp);
+        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp);
 
-        // Two sub-triangles
-        draw_triangle_clip(
-            c,
-            new_v1.clone(),
-            in_v1.clone(),
-            in_v2.clone(),
-            provoke,
-            clip_bit << 1,
-        );
-        draw_triangle_clip(c, new_v1, in_v2.clone(), new_v2, provoke, clip_bit << 1);
+        // Edge flag management matching C's draw_triangle_clip:
+        // tmp1 gets q[0]'s edge flag (it's on the q[0]→q[1] edge)
+        tmp1.edge_flag = q0.edge_flag;
+        let edge_flag_tmp = q2.edge_flag;
+        q2.edge_flag = 0; // suppress internal edge for first sub-tri
+        draw_triangle_clip(c, tmp1.clone(), q1, q2.clone(), provoke, clip_bit << 1);
+
+        tmp2.edge_flag = 0; // internal clip edge
+        tmp1.edge_flag = 0; // internal edge between sub-triangles
+        q2.edge_flag = edge_flag_tmp; // restore
+        draw_triangle_clip(c, tmp2, tmp1, q2, provoke, clip_bit << 1);
     } else if num_outside == 2 {
         // Two vertices outside: clip into 1 triangle
-        // Rotate so the inside vertex is first
-        let (in_v, out_v1, out_v2) = if !v0_outside {
-            (&v0, &v1, &v2)
+        // Rotate so the inside vertex is q[0], outside are q[1], q[2]
+        let (q0, q1, q2) = if !v0_outside {
+            (v0, v1, v2)
         } else if !v1_outside {
-            (&v1, &v2, &v0)
+            (v1, v2, v0)
         } else {
-            (&v2, &v0, &v1)
+            (v2, v0, v1)
         };
 
-        let t1 = clip_lerp_factor(clip_bit, &out_v1.clip_space, &in_v.clip_space);
-        let t2 = clip_lerp_factor(clip_bit, &out_v2.clip_space, &in_v.clip_space);
+        let t1 = clip_lerp_factor(clip_bit, &q0.clip_space, &q1.clip_space);
+        let t2 = clip_lerp_factor(clip_bit, &q0.clip_space, &q2.clip_space);
 
-        let new_v1 = interpolate_vertex(out_v1, in_v, t1, c.depth_clamp);
-        let new_v2 = interpolate_vertex(out_v2, in_v, t2, c.depth_clamp);
+        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp);
+        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp);
 
-        draw_triangle_clip(c, in_v.clone(), new_v1, new_v2, provoke, clip_bit << 1);
+        // Edge flag management:
+        tmp1.edge_flag = 0; // internal clip edge
+        tmp2.edge_flag = q2.edge_flag; // preserves original edge flag
+        draw_triangle_clip(c, q0, tmp1, tmp2, provoke, clip_bit << 1);
     }
 }
 
@@ -2178,22 +2438,22 @@ pub fn draw_triangle_fill(
     v2: &GlVertex,
     provoke: usize,
 ) {
-    let p0 = Vec3::new(v0.screen_space.x, v0.screen_space.y, v0.screen_space.z);
-    let p1 = Vec3::new(v1.screen_space.x, v1.screen_space.y, v1.screen_space.z);
-    let p2 = Vec3::new(v2.screen_space.x, v2.screen_space.y, v2.screen_space.z);
+    let hp0 = v4_to_v3h(v0.screen_space);
+    let hp1 = v4_to_v3h(v1.screen_space);
+    let hp2 = v4_to_v3h(v2.screen_space);
 
     // Compute polygon offset if enabled
     let poly_offset = if c.poly_offset_fill {
-        calc_poly_offset(p0, p1, p2, c.poly_factor, c.poly_units)
+        calc_poly_offset(hp0, hp1, hp2, c.poly_factor, c.poly_units)
     } else {
         0.0
     };
 
     // Bounding box
-    let min_x = p0.x.min_(p1.x).min_(p2.x).floor_() as i32;
-    let max_x = p0.x.max_(p1.x).max_(p2.x).ceil_() as i32;
-    let min_y = p0.y.min_(p1.y).min_(p2.y).floor_() as i32;
-    let max_y = p0.y.max_(p1.y).max_(p2.y).ceil_() as i32;
+    let min_x = hp0.x.min_(hp1.x).min_(hp2.x).floor_() as i32;
+    let max_x = hp0.x.max_(hp1.x).max_(hp2.x).ceil_() as i32;
+    let min_y = hp0.y.min_(hp1.y).min_(hp2.y).floor_() as i32;
+    let max_y = hp0.y.max_(hp1.y).max_(hp2.y).ceil_() as i32;
 
     // Clamp to viewport/scissor bounds
     let min_x = min_x.max(c.lx);
@@ -2207,14 +2467,14 @@ pub fn draw_triangle_fill(
 
     // Setup edge equations (implicit line functions)
     // l12 is the edge opposite v0, l20 opposite v1, l01 opposite v2.
-    let l01 = Line::new(p0.x, p0.y, p1.x, p1.y);
-    let l12 = Line::new(p1.x, p1.y, p2.x, p2.y);
-    let l20 = Line::new(p2.x, p2.y, p0.x, p0.y);
+    let l01 = Line::new(hp0.x, hp0.y, hp1.x, hp1.y);
+    let l12 = Line::new(hp1.x, hp1.y, hp2.x, hp2.y);
+    let l20 = Line::new(hp2.x, hp2.y, hp0.x, hp0.y);
 
     // Evaluate at the opposite vertex to get the denominator for barycentric coords
-    let alpha_denom = l12.func(p0.x, p0.y);
-    let beta_denom = l20.func(p1.x, p1.y);
-    let gamma_denom = l01.func(p2.x, p2.y);
+    let alpha_denom = l12.func(hp0.x, hp0.y);
+    let beta_denom = l20.func(hp1.x, hp1.y);
+    let gamma_denom = l01.func(hp2.x, hp2.y);
 
     if alpha_denom.abs_() < 1e-10 || beta_denom.abs_() < 1e-10 || gamma_denom.abs_() < 1e-10 {
         return; // Degenerate triangle
@@ -2224,9 +2484,9 @@ pub fn draw_triangle_fill(
     let inv_beta = 1.0 / beta_denom;
     let inv_gamma = 1.0 / gamma_denom;
 
-    let w0 = v0.clip_space.w;
-    let w1 = v1.clip_space.w;
-    let w2 = v2.clip_space.w;
+    let w0 = v0.screen_space.w;
+    let w1 = v1.screen_space.w;
+    let w2 = v2.screen_space.w;
 
     let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
@@ -2279,7 +2539,7 @@ pub fn draw_triangle_fill(
             }
 
             // Interpolate z
-            let z = alpha * p0.z + beta * p1.z + gamma * p2.z + poly_offset;
+            let z = alpha * hp0.z + beta * hp1.z + gamma * hp2.z + poly_offset;
 
             // Map z to depth range
             let z_mapped =
@@ -2350,59 +2610,40 @@ pub fn draw_triangle_line(
     v2: &GlVertex,
     provoke: usize,
 ) {
-    let p0 = Vec3::new(v0.screen_space.x, v0.screen_space.y, v0.screen_space.z);
-    let p1 = Vec3::new(v1.screen_space.x, v1.screen_space.y, v1.screen_space.z);
-    let p2 = Vec3::new(v2.screen_space.x, v2.screen_space.y, v2.screen_space.z);
+    let hp0 = v4_to_v3h(v0.screen_space);
+    let hp1 = v4_to_v3h(v1.screen_space);
+    let hp2 = v4_to_v3h(v2.screen_space);
+    let w0 = v0.screen_space.w;
+    let w1 = v1.screen_space.w;
+    let w2 = v2.screen_space.w;
 
     let poly_offset = if c.poly_offset_line {
-        calc_poly_offset(p0, p1, p2, c.poly_factor, c.poly_units)
+        calc_poly_offset(hp0, hp1, hp2, c.poly_factor, c.poly_units)
     } else {
         0.0
     };
 
-    let w0 = v0.clip_space.w;
-    let w1 = v1.clip_space.w;
-    let w2 = v2.clip_space.w;
-
-    // Draw the three edges
-    if v0.edge_flag != 0 {
-        draw_thick_line(
-            c,
-            p0,
-            p1,
-            w0,
-            w1,
-            &v0.vs_out,
-            &v1.vs_out,
-            provoke,
-            poly_offset,
-        );
-    }
-    if v1.edge_flag != 0 {
-        draw_thick_line(
-            c,
-            p1,
-            p2,
-            w1,
-            w2,
-            &v1.vs_out,
-            &v2.vs_out,
-            provoke,
-            poly_offset,
-        );
-    }
-    if v2.edge_flag != 0 {
-        draw_thick_line(
-            c,
-            p2,
-            p0,
-            w2,
-            w0,
-            &v2.vs_out,
-            &v0.vs_out,
-            provoke,
-            poly_offset,
-        );
+    // Draw the three edges, choosing AA or thick line based on line_smooth
+    if c.line_smooth {
+        if v0.edge_flag != 0 {
+            draw_aa_line(c, hp0, hp1, w0, w1, &v0.vs_out, &v1.vs_out, provoke, poly_offset);
+        }
+        if v1.edge_flag != 0 {
+            draw_aa_line(c, hp1, hp2, w1, w2, &v1.vs_out, &v2.vs_out, provoke, poly_offset);
+        }
+        if v2.edge_flag != 0 {
+            draw_aa_line(c, hp2, hp0, w2, w0, &v2.vs_out, &v0.vs_out, provoke, poly_offset);
+        }
+    } else {
+        if v0.edge_flag != 0 {
+            draw_thick_line(c, hp0, hp1, w0, w1, &v0.vs_out, &v1.vs_out, provoke, poly_offset);
+        }
+        if v1.edge_flag != 0 {
+            draw_thick_line(c, hp1, hp2, w1, w2, &v1.vs_out, &v2.vs_out, provoke, poly_offset);
+        }
+        if v2.edge_flag != 0 {
+            draw_thick_line(c, hp2, hp0, w2, w0, &v2.vs_out, &v0.vs_out, provoke, poly_offset);
+        }
     }
 }
 
@@ -2414,12 +2655,12 @@ pub fn draw_triangle_point(
     v2: &GlVertex,
     _provoke: usize,
 ) {
-    let p0 = Vec3::new(v0.screen_space.x, v0.screen_space.y, v0.screen_space.z);
-    let p1 = Vec3::new(v1.screen_space.x, v1.screen_space.y, v1.screen_space.z);
-    let p2 = Vec3::new(v2.screen_space.x, v2.screen_space.y, v2.screen_space.z);
+    let hp0 = v4_to_v3h(v0.screen_space);
+    let hp1 = v4_to_v3h(v1.screen_space);
+    let hp2 = v4_to_v3h(v2.screen_space);
 
     let poly_offset = if c.poly_offset_pt {
-        calc_poly_offset(p0, p1, p2, c.poly_factor, c.poly_units)
+        calc_poly_offset(hp0, hp1, hp2, c.poly_factor, c.poly_units)
     } else {
         0.0
     };
