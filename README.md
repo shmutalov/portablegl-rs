@@ -152,6 +152,16 @@ portablegl = { path = "path/to/portablegl-rs", features = ["no_std"] }
 Requires an allocator (`alloc` crate). Uses `libm` for float math. Works on embedded targets,
 custom OS kernels, WASM without `std`, etc.
 
+### Running Examples
+
+Three interactive examples are included (using `minifb` for windowing):
+
+```sh
+cargo run --example hello_triangle --features examples      # Solid red triangle
+cargo run --example colored_triangle --features examples    # RGB interpolated triangle
+cargo run --example spinning_triangle --features examples   # Rotating 3D triangle
+```
+
 Cargo Features
 ==============
 
@@ -172,6 +182,7 @@ Cargo Features
 | `unsafe_mode` | Allow additional unsafe optimizations | |
 | `hermite_smoothing` | Use Hermite smoothing for interpolation | |
 | `better_thick_lines` | Improved thick line rendering | |
+| `examples` | Build interactive examples (uses `minifb`) | |
 
 Project Structure
 =================
