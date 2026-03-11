@@ -218,6 +218,14 @@ Similar/Related Projects
 - [Mesa3D](https://mesa3d.org/) - Full open source OpenGL/Vulkan implementation with software renderers.
 - [SoftGLRender](https://github.com/keith2018/SoftGLRender) - OpenGL software renderer in modern C++.
 
+Acknowledgments
+================
+
+This project was ported from C to Rust with the assistance of **Claude Opus 4.6** (Anthropic).
+Claude helped translate the ~13,000-line C99 codebase into idiomatic Rust, implement the `no_std`
+support layer, C FFI bindings, and port the regression test suite — achieving full functional
+equivalence with the original PortableGL.
+
 LICENSE
 =======
 
