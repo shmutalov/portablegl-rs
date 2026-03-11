@@ -682,6 +682,7 @@ pub struct GlTexture {
     pub type_: GLenum,
     pub deleted: bool,
     pub user_owned: bool,
+    pub border_color: Vec4,
     pub data: Vec<u8>,
 }
 
@@ -700,6 +701,7 @@ impl Default for GlTexture {
             type_: GL_TEXTURE_UNBOUND,
             deleted: false,
             user_owned: false,
+            border_color: Vec4::new(0.0, 0.0, 0.0, 0.0),
             data: Vec::new(),
         }
     }

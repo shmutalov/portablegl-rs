@@ -21,6 +21,9 @@ struct PglUniforms {
     color: Vec4,
     tex0: GLuint,
     light_pos: Vec3,
+    // Extra field for Rust port: context pointer for texture sampling in shaders.
+    // The C version uses a global context; in Rust we pass it through uniforms.
+    ctx: *const GlContext,
 }
 
 impl Default for PglUniforms {
@@ -33,6 +36,7 @@ impl Default for PglUniforms {
             color: Vec4::new(1.0, 0.0, 0.0, 1.0),
             tex0: 0,
             light_pos: Vec3::new(0.0, 0.0, 0.0),
+            ctx: core::ptr::null(),
         }
     }
 }
@@ -146,25 +150,31 @@ unsafe extern "C" fn pgl_tex_rplc_vs(
 unsafe extern "C" fn pgl_tex_rplc_fs(
     fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
 ) {
-    // Texture sampling requires context access - this is a placeholder
-    // In the C version, texture2D is a global function.
-    // For tests that need this, we pass ctx pointer in uniforms.
-    let _tex_coords = *(fs_input as *const Vec2);
-    let _tex = (*(uniforms as *const PglUniforms)).tex0;
-    // Can't sample without context - texture tests handle this differently
-    (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    let tex_coords = *(fs_input as *const Vec2);
+    let u = &*(uniforms as *const PglUniforms);
+    (*builtins).gl_FragColor = (*u.ctx).texture2d(u.tex0, tex_coords.x, tex_coords.y);
 }
 
 unsafe extern "C" fn pgl_tex_rect_rplc_fs(
     fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
 ) {
-    (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    let tex_coords = *(fs_input as *const Vec2);
+    let u = &*(uniforms as *const PglUniforms);
+    (*builtins).gl_FragColor = (*u.ctx).texture_rect(u.tex0, tex_coords.x, tex_coords.y);
 }
 
 unsafe extern "C" fn pgl_tex_modulate_fs(
     fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
 ) {
-    (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    let tex_coords = *(fs_input as *const Vec2);
+    let u = &*(uniforms as *const PglUniforms);
+    let tex_color = (*u.ctx).texture2d(u.tex0, tex_coords.x, tex_coords.y);
+    (*builtins).gl_FragColor = Vec4::new(
+        tex_color.x * u.color.x,
+        tex_color.y * u.color.y,
+        tex_color.z * u.color.z,
+        tex_color.w * u.color.w,
+    );
 }
 
 unsafe extern "C" fn pgl_tex_pnt_light_diff_vs(
@@ -189,7 +199,16 @@ unsafe extern "C" fn pgl_tex_pnt_light_diff_vs(
 unsafe extern "C" fn pgl_tex_pnt_light_diff_fs(
     fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
 ) {
-    (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    let u = &*(uniforms as *const PglUniforms);
+    let light_color = *(fs_input as *const Vec4);
+    let tex_coords = *((fs_input as *const Vec2).add(2));
+    let tex_color = (*u.ctx).texture2d(u.tex0, tex_coords.x, tex_coords.y);
+    (*builtins).gl_FragColor = Vec4::new(
+        light_color.x * tex_color.x,
+        light_color.y * tex_color.y,
+        light_color.z * tex_color.z,
+        light_color.w * tex_color.w,
+    );
 }
 
 fn pgl_init_std_shaders(ctx: &mut GlContext) -> [GLuint; PGL_NUM_SHADERS] {
@@ -1714,3 +1733,679 @@ fn test_multidraw_impl(ctx: &mut GlContext, argc: i32) {
 
 #[test] fn multidraw_arrays() { run_test("multidraw_arrays", |ctx| test_multidraw_impl(ctx, 0)); }
 #[test] fn multidraw_elements() { run_test("multidraw_elements", |ctx| test_multidraw_impl(ctx, 1)); }
+
+// ============================================================================
+// Test: scissoring_test1 (argc=0..4)
+// ============================================================================
+fn scissoring_test1_impl(ctx: &mut GlContext, argc: i32) {
+    #[rustfmt::skip]
+    let points: [f32; 45] = [
+        -0.5, -0.5, -0.1,
+         0.5, -0.5, -0.1,
+         0.0,  0.5, -0.1,
+
+        -0.5, -0.5, -0.3,
+         0.5, -0.5, -0.3,
+         0.0,  0.5, -0.3,
+
+        -0.5, -0.5, -0.5,
+         0.5, -0.5, -0.5,
+         0.0,  0.5, -0.5,
+
+        -0.5, -0.5, -0.7,
+         0.5, -0.5, -0.7,
+         0.0,  0.5, -0.7,
+
+        -0.5, -0.5, -0.9,
+         0.5, -0.5, -0.9,
+         0.0,  0.5, -0.9,
+    ];
+
+    match argc {
+        1 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_LINE); }
+        2 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_POINT); }
+        3 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_LINE); ctx.gl_line_width(8.0); }
+        4 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_POINT); ctx.gl_point_size(8.0); }
+        _ => {}
+    }
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_IDENTITY]);
+
+    let mut the_uniforms = PglUniforms::default();
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_enable(GL_SCISSOR_TEST);
+    ctx.gl_enable(GL_DEPTH_TEST);
+
+    ctx.gl_clear_color(0.0, 0.0, 0.0, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Cut off all sides
+    ctx.gl_scissor(220, 220, 200, 200);
+    the_uniforms.color = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 0, 3);
+
+    // Allow right side
+    ctx.gl_scissor(420, 220, 500, 200);
+    the_uniforms.color = Vec4::new(0.0, 1.0, 0.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 3, 3);
+
+    // Allow bottom
+    ctx.gl_scissor(220, 0, 200, 220);
+    the_uniforms.color = Vec4::new(0.0, 0.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 6, 3);
+
+    // Allow left
+    ctx.gl_scissor(0, 220, 220, 400);
+    the_uniforms.color = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 9, 3);
+
+    // Allow top
+    ctx.gl_scissor(220, 420, 200, 550);
+    the_uniforms.color = Vec4::new(0.0, 1.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 12, 3);
+}
+
+#[test] fn scissor1_fill() { run_test("scissor1_fill", |ctx| scissoring_test1_impl(ctx, 0)); }
+#[test] fn scissor1_ln() { run_test("scissor1_ln", |ctx| scissoring_test1_impl(ctx, 1)); }
+#[test] fn scissor1_pnt() { run_test("scissor1_pnt", |ctx| scissoring_test1_impl(ctx, 2)); }
+#[test] fn scissor1_ln8() { run_test("scissor1_ln8", |ctx| scissoring_test1_impl(ctx, 3)); }
+#[test] fn scissor1_pnt8() { run_test("scissor1_pnt8", |ctx| scissoring_test1_impl(ctx, 4)); }
+
+// ============================================================================
+// Test: scissoring_test2 (argc=0..4)
+// ============================================================================
+fn scissoring_test2_impl(ctx: &mut GlContext, argc: i32) {
+    #[rustfmt::skip]
+    let points: [f32; 45] = [
+        -0.5, -0.5, 0.9,
+         0.5, -0.5, 0.9,
+         0.0,  0.5, 0.9,
+
+        -0.5, -0.5, 0.7,
+         0.5, -0.5, 0.7,
+         0.0,  0.5, 0.7,
+
+        -0.5, -0.5, 0.5,
+         0.5, -0.5, 0.5,
+         0.0,  0.5, 0.5,
+
+        -0.5, -0.5, 0.3,
+         0.5, -0.5, 0.3,
+         0.0,  0.5, 0.3,
+
+        -0.5, -0.5, 0.1,
+         0.5, -0.5, 0.1,
+         0.0,  0.5, 0.1,
+    ];
+
+    match argc {
+        1 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_LINE); }
+        2 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_POINT); }
+        3 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_LINE); ctx.gl_line_width(8.0); }
+        4 => { ctx.gl_polygon_mode(GL_FRONT_AND_BACK, GL_POINT); ctx.gl_point_size(8.0); }
+        _ => {}
+    }
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_IDENTITY]);
+
+    let mut the_uniforms = PglUniforms::default();
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_enable(GL_SCISSOR_TEST);
+    ctx.gl_enable(GL_DEPTH_TEST);
+
+    ctx.gl_clear_color(0.0, 0.0, 0.0, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // Only top
+    ctx.gl_scissor(0, 420, 640, 550);
+    the_uniforms.color = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 0, 3);
+
+    // Only right side
+    ctx.gl_scissor(420, 0, 500, 640);
+    the_uniforms.color = Vec4::new(0.0, 1.0, 0.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 3, 3);
+
+    // Only bottom
+    ctx.gl_scissor(0, 0, 640, 220);
+    the_uniforms.color = Vec4::new(0.0, 0.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 6, 3);
+
+    // Only left
+    ctx.gl_scissor(0, 0, 220, 640);
+    the_uniforms.color = Vec4::new(1.0, 0.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 9, 3);
+
+    // Cut off all sides
+    ctx.gl_scissor(220, 220, 200, 200);
+    the_uniforms.color = Vec4::new(0.0, 1.0, 1.0, 1.0);
+    ctx.gl_draw_arrays(GL_TRIANGLES, 12, 3);
+}
+
+#[test] fn scissor2_fill() { run_test("scissor2_fill", |ctx| scissoring_test2_impl(ctx, 0)); }
+#[test] fn scissor2_ln() { run_test("scissor2_ln", |ctx| scissoring_test2_impl(ctx, 1)); }
+#[test] fn scissor2_pnt() { run_test("scissor2_pnt", |ctx| scissoring_test2_impl(ctx, 2)); }
+#[test] fn scissor2_ln8() { run_test("scissor2_ln8", |ctx| scissoring_test2_impl(ctx, 3)); }
+#[test] fn scissor2_pnt8() { run_test("scissor2_pnt8", |ctx| scissoring_test2_impl(ctx, 4)); }
+
+// ============================================================================
+// Test: scissoring_test3 (scissor_clear_color)
+// ============================================================================
+#[test]
+fn scissor_clear_color() {
+    run_test("scissor_clear_color", |ctx| {
+        #[rustfmt::skip]
+        let points: [f32; 9] = [
+            -0.5, -0.5, 0.0,
+             0.5, -0.5, 0.0,
+             0.0,  0.5, 0.0,
+        ];
+
+        setup_vbo(ctx, &points);
+        ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+        ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+        let std_shaders = pgl_init_std_shaders(ctx);
+        ctx.gl_use_program(std_shaders[PGL_SHADER_IDENTITY]);
+
+        let mut the_uniforms = PglUniforms::default();
+        ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+        ctx.gl_enable(GL_SCISSOR_TEST);
+
+        ctx.gl_clear_color(0.0, 0.0, 0.0, 1.0);
+        ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+
+        the_uniforms.color = Vec4::new(1.0, 0.0, 0.0, 1.0);
+        ctx.gl_draw_arrays(GL_TRIANGLES, 0, 3);
+
+        ctx.gl_scissor(WIDTH / 2, 0, WIDTH / 2, HEIGHT);
+        ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+
+        ctx.gl_disable(GL_SCISSOR_TEST);
+        ctx.gl_scissor(0, HEIGHT / 2, WIDTH, HEIGHT / 2);
+        ctx.gl_enable(GL_SCISSOR_TEST);
+        ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    });
+}
+
+// ============================================================================
+// Test: scissoring_test4 (argc=0..2)
+// ============================================================================
+fn scissoring_test4_impl(ctx: &mut GlContext, argc: i32) {
+    #[rustfmt::skip]
+    let points_n_lines: [f32; 30] = [
+        // test -x and +y
+        -1.1,  0.6, 0.0,
+        -0.6,  1.1, 0.0,
+
+        // +x and -y
+         1.1, -0.6, 0.0,
+         0.6, -1.1, 0.0,
+
+        // more clipping
+        -1.0,  0.9, 0.0,
+         1.0, -0.9, 0.0,
+
+        // points below
+        -0.9,   0.5, 0.0,
+         0.9,   0.5, 0.0,
+
+        -1.02, -0.5, 0.0,
+         1.02, -0.5, 0.0,
+    ];
+
+    match argc {
+        1 => { ctx.gl_point_size(8.0); ctx.gl_line_width(8.0); }
+        2 => { ctx.gl_point_size(32.0); ctx.gl_line_width(32.0); }
+        _ => {}
+    }
+
+    setup_vbo(ctx, &points_n_lines);
+    ctx.gl_enable_vertex_attrib_array(0);
+    ctx.gl_vertex_attrib_pointer(0, 3, GL_FLOAT, false, 0, 0);
+
+    ctx.gl_clear_color(0.0, 0.0, 0.0, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+
+    // No shader or uniform needed - uses default shader 0
+    ctx.gl_enable(GL_SCISSOR_TEST);
+    ctx.gl_scissor(
+        (WIDTH as f32 / 20.0) as i32,
+        (HEIGHT as f32 / 20.0) as i32,
+        (9.0 * WIDTH as f32 / 10.0) as i32,
+        (9.0 * HEIGHT as f32 / 10.0) as i32,
+    );
+
+    ctx.gl_draw_arrays(GL_LINES, 0, 6);
+    ctx.gl_draw_arrays(GL_POINTS, 6, 4);
+}
+
+#[test] fn scissor4_pnt_ln() { run_test("scissor4_pnt_ln", |ctx| scissoring_test4_impl(ctx, 0)); }
+#[test] fn scissor4_pnt_ln8() { run_test("scissor4_pnt_ln8", |ctx| scissoring_test4_impl(ctx, 1)); }
+#[test] fn scissor4_pnt_ln32() { run_test("scissor4_pnt_ln32", |ctx| scissoring_test4_impl(ctx, 2)); }
+
+// ============================================================================
+// Texture2D filtering tests (from test_texturing.cpp test_tex2D_filtering)
+// ============================================================================
+
+fn test_tex2d_filtering_impl(ctx: &mut GlContext, argc: i32) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        0.0, 0.0,
+        0.0, 1.0,
+        1.0, 0.0,
+        1.0, 1.0,
+    ];
+    let test_texture: [u8; 16] = [
+        255, 255, 255, 255,
+          0,   0,   0, 255,
+          0,   0,   0, 255,
+        255, 255, 255, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_2D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER,
+        if argc == 0 { GL_NEAREST as GLint } else { GL_LINEAR as GLint });
+    ctx.gl_tex_image_2d(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA as GLint, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&test_texture));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_TEXCOORD0);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_TEXCOORD0, 2, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_TEX_REPLACE]);
+
+    let mut the_uniforms = PglUniforms::default();
+    the_uniforms.mvp_mat = Mat4::identity();
+    the_uniforms.tex0 = textures[0];
+    the_uniforms.ctx = ctx as *const GlContext;
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn texture2D_nearest() { run_test("texture2D_nearest", |ctx| test_tex2d_filtering_impl(ctx, 0)); }
+#[test] fn texture2D_linear() { run_test("texture2D_linear", |ctx| test_tex2d_filtering_impl(ctx, 1)); }
+
+// ============================================================================
+// Texture2D wrap mode tests (from test_texturing.cpp test_tex2D_wrap_modes)
+// ============================================================================
+
+fn test_tex2d_wrap_modes_impl(ctx: &mut GlContext, argc: i32) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        -1.0, -1.0,
+        -1.0,  2.0,
+         2.0, -1.0,
+         2.0,  2.0,
+    ];
+    let test_texture: [u8; 16] = [
+        255, 255, 255, 255,
+          0,   0,   0, 255,
+          0,   0,   0, 255,
+        255, 255, 255, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_2D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST as GLint);
+
+    match argc {
+        0 => {
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT as GLint);
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT as GLint);
+        }
+        1 => {
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE as GLint);
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE as GLint);
+        }
+        2 => {
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT as GLint);
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_MIRRORED_REPEAT as GLint);
+        }
+        3 => {
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER as GLint);
+            ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER as GLint);
+            let green: [GLfloat; 4] = [0.0, 1.0, 0.0, 1.0];
+            ctx.gl_tex_parameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, &green);
+        }
+        _ => {}
+    }
+
+    ctx.gl_tex_image_2d(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA as GLint, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&test_texture));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_TEXCOORD0);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_TEXCOORD0, 2, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_TEX_REPLACE]);
+
+    let mut the_uniforms = PglUniforms::default();
+    the_uniforms.mvp_mat = Mat4::identity();
+    the_uniforms.tex0 = textures[0];
+    the_uniforms.ctx = ctx as *const GlContext;
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn texture2D_repeat() { run_test("texture2D_repeat", |ctx| test_tex2d_wrap_modes_impl(ctx, 0)); }
+#[test] fn texture2D_clamp2edge() { run_test("texture2D_clamp2edge", |ctx| test_tex2d_wrap_modes_impl(ctx, 1)); }
+#[test] fn texture2D_mirroredrepeat() { run_test("texture2D_mirroredrepeat", |ctx| test_tex2d_wrap_modes_impl(ctx, 2)); }
+#[test] fn texture2D_clamp2border() { run_test("texture2D_clamp2border", |ctx| test_tex2d_wrap_modes_impl(ctx, 3)); }
+
+// ============================================================================
+// Texture1D tests (from test_tex1D.cpp test_texture1D)
+// ============================================================================
+
+#[repr(C)]
+struct Tex1DUniforms {
+    tex: GLuint,
+    ctx: *const GlContext,
+}
+
+unsafe extern "C" fn tex1d_replace_vs(
+    vs_output: *mut f32, vertex_attribs: *mut Vec4,
+    builtins: *mut ShaderBuiltins, _uniforms: *mut c_void,
+) {
+    *vs_output = (*vertex_attribs.add(2)).x; // tex_coord
+    (*builtins).gl_Position = *vertex_attribs.add(0);
+}
+
+unsafe extern "C" fn tex1d_replace_fs(
+    fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
+) {
+    let tex_coords_x = *fs_input;
+    let u = &*(uniforms as *const Tex1DUniforms);
+    (*builtins).gl_FragColor = (*u.ctx).texture1d(u.tex, tex_coords_x);
+}
+
+fn test_texture1d_impl(ctx: &mut GlContext, argc: i32) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords1: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+    let tex_coords2: [f32; 4] = [0.0, 0.0, 2.0, 2.0];
+
+    let test_texture: [u8; 8] = [
+        255, 255, 255, 255,
+          0,   0,   0, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+
+    ctx.gl_bind_texture(GL_TEXTURE_1D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER,
+        if argc != 1 { GL_NEAREST as GLint } else { GL_LINEAR as GLint });
+    ctx.gl_tex_image_1d(GL_TEXTURE_1D, 0, GL_COMPRESSED_RGBA as GLint, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&test_texture));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(0);
+    ctx.gl_vertex_attrib_pointer(0, 3, GL_FLOAT, false, 0, 0);
+
+    let tex_coords: &[f32] = if argc >= 2 { &tex_coords2 } else { &tex_coords1 };
+    setup_vbo(ctx, tex_coords);
+
+    // default wrap is GL_REPEAT for argc == 2
+    if argc == 3 {
+        ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE as GLint);
+    } else if argc == 4 {
+        ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_WRAP_S, GL_MIRRORED_REPEAT as GLint);
+    }
+
+    ctx.gl_enable_vertex_attrib_array(2);
+    ctx.gl_vertex_attrib_pointer(2, 1, GL_FLOAT, false, 0, 0);
+
+    let smooth1: [GLenum; 1] = [PGL_SMOOTH];
+    let texture_shader = ctx.pgl_create_program(tex1d_replace_vs, tex1d_replace_fs, 1, &smooth1, false);
+    ctx.gl_use_program(texture_shader);
+
+    let mut the_uniforms = Tex1DUniforms { tex: textures[0], ctx: ctx as *const GlContext };
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut Tex1DUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn texture1D_nearest() { run_test("texture1D_nearest", |ctx| test_texture1d_impl(ctx, 0)); }
+#[test] fn texture1D_linear() { run_test("texture1D_linear", |ctx| test_texture1d_impl(ctx, 1)); }
+#[test] fn texture1D_repeat() { run_test("texture1D_repeat", |ctx| test_texture1d_impl(ctx, 2)); }
+#[test] fn texture1D_clamp2edge() { run_test("texture1D_clamp2edge", |ctx| test_texture1d_impl(ctx, 3)); }
+#[test] fn texture1D_mirroredrepeat() { run_test("texture1D_mirroredrepeat", |ctx| test_texture1d_impl(ctx, 4)); }
+
+// ============================================================================
+// pglteximage2D test (from pglteximage2D.cpp test_pglteximage2D)
+// ============================================================================
+
+fn test_pglteximage2d_impl(ctx: &mut GlContext) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        0.0, 0.0,
+        0.0, 1.0,
+        1.0, 0.0,
+        1.0, 1.0,
+    ];
+    let mut test_texture: [u8; 16] = [
+        255, 255, 255, 255,
+          0,   0,   0, 255,
+          0,   0,   0, 255,
+        255, 255, 255, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_2D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST as GLint);
+    // In C, pglTexImage2D stores a raw pointer (no copy), so modifications after
+    // the call are visible during rendering. In Rust, pgl_tex_image_2d copies the
+    // data, so we apply the modification BEFORE uploading to match the C output.
+    test_texture[4] = 255; // test_texture[1].r = 255 in C
+
+    ctx.pgl_tex_image_2d(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA as GLint, 2, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, test_texture.as_mut_ptr());
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_TEXCOORD0);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_TEXCOORD0, 2, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_TEX_REPLACE]);
+
+    let mut the_uniforms = PglUniforms::default();
+    the_uniforms.mvp_mat = Mat4::identity();
+    the_uniforms.tex0 = textures[0];
+    the_uniforms.ctx = ctx as *const GlContext;
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn pglteximage2D() { run_test("pglteximage2D", |ctx| test_pglteximage2d_impl(ctx)); }
+
+// ============================================================================
+// pglteximage1D test (from pglteximage1D.cpp test_pglteximage1D)
+// ============================================================================
+
+fn test_pglteximage1d_impl(ctx: &mut GlContext) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+
+    let mut test_texture: [u8; 8] = [
+        255, 255, 255, 255,
+          0,   0,   0, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_1D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_NEAREST as GLint);
+    // In C, pglTexImage1D stores a raw pointer (no copy), so modifications after
+    // the call are visible during rendering. In Rust, pgl_tex_image_1d copies the
+    // data, so we apply the modification BEFORE uploading to match the C output.
+    test_texture[6] = 255; // test_texture[1].b = 255 in C
+
+    ctx.pgl_tex_image_1d(GL_TEXTURE_1D, 0, GL_COMPRESSED_RGBA as GLint, 2, 0, GL_RGBA, GL_UNSIGNED_BYTE, test_texture.as_mut_ptr());
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(0);
+    ctx.gl_vertex_attrib_pointer(0, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(2);
+    ctx.gl_vertex_attrib_pointer(2, 1, GL_FLOAT, false, 0, 0);
+
+    let smooth1: [GLenum; 1] = [PGL_SMOOTH];
+    let texture_shader = ctx.pgl_create_program(tex1d_replace_vs, tex1d_replace_fs, 1, &smooth1, false);
+    ctx.gl_use_program(texture_shader);
+
+    let mut the_uniforms = Tex1DUniforms { tex: textures[0], ctx: ctx as *const GlContext };
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut Tex1DUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn pglteximage1D() { run_test("pglteximage1D", |ctx| test_pglteximage1d_impl(ctx)); }
+
+// ============================================================================
+// Unpack alignment test (from test_unpackalignment.cpp)
+// ============================================================================
+
+#[repr(C)]
+struct UnpackUniforms {
+    tex: GLuint,
+    ctx: *const GlContext,
+}
+
+unsafe extern "C" fn unpack_tex_replace_vs(
+    vs_output: *mut f32, vertex_attribs: *mut Vec4,
+    builtins: *mut ShaderBuiltins, _uniforms: *mut c_void,
+) {
+    let tc = *vertex_attribs.add(2);
+    *(vs_output as *mut Vec2) = Vec2::new(tc.x, tc.y);
+    (*builtins).gl_Position = *vertex_attribs.add(0);
+}
+
+unsafe extern "C" fn unpack_tex_replace_fs(
+    fs_input: *mut f32, builtins: *mut ShaderBuiltins, uniforms: *mut c_void,
+) {
+    let tex_coords = *(fs_input as *const Vec2);
+    let u = &*(uniforms as *const UnpackUniforms);
+    (*builtins).gl_FragColor = (*u.ctx).texture2d(u.tex, tex_coords.x, tex_coords.y);
+}
+
+fn test_unpackalignment_impl(ctx: &mut GlContext) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        0.0, 0.0,
+        0.0, 1.0,
+        1.0, 0.0,
+        1.0, 1.0,
+    ];
+
+    // 3x3 texture with padding bytes for alignment=8
+    // Each row is 3 pixels * 4 bytes = 12 bytes, padded to 16 bytes (next multiple of 8)
+    let test_texture: [u8; 48] = [
+        255, 255, 255, 255,   0,   0,   0, 255, 255, 255, 255, 255, 255,   0,   0, 255,
+          0,   0,   0, 255, 255, 255, 255, 255,   0,   0,   0, 255,   0, 255,   0, 255,
+        255, 255, 255, 255,   0,   0,   0, 255, 255, 255, 255, 255,   0,   0, 255, 255,
+    ];
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_2D, textures[0]).unwrap();
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+
+    ctx.gl_pixel_storei(GL_UNPACK_ALIGNMENT, 8);
+    ctx.gl_tex_parameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_image_2d(GL_TEXTURE_2D, 0, GL_COMPRESSED_RGBA as GLint, 3, 3, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&test_texture));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(0);
+    ctx.gl_vertex_attrib_pointer(0, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(2);
+    ctx.gl_vertex_attrib_pointer(2, 2, GL_FLOAT, false, 0, 0);
+
+    let smooth2: [GLenum; 2] = [PGL_SMOOTH; 2];
+    let texture_shader = ctx.pgl_create_program(unpack_tex_replace_vs, unpack_tex_replace_fs, 2, &smooth2, false);
+    ctx.gl_use_program(texture_shader);
+
+    let mut the_uniforms = UnpackUniforms { tex: textures[0], ctx: ctx as *const GlContext };
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut UnpackUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn unpack_alignment() { run_test("unpack_alignment", |ctx| test_unpackalignment_impl(ctx)); }
+
+// TODO: texrect tests require external texture loading
+// (texrect_nearest, texrect_linear, texrect_repeat, texrect_clamp2edge,
+//  texrect_mirroredrepeat, texrect_clamp2border)

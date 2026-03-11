@@ -806,6 +806,36 @@ impl GlContext {
         self.gl_tex_parameteri(target, pname, param as GLint);
     }
 
+    pub fn gl_tex_parameterfv(&mut self, target: GLenum, pname: GLenum, params: &[GLfloat]) {
+        let ti = match texture_target_index(target) {
+            Some(i) => i,
+            None => {
+                set_err!(self, GL_INVALID_ENUM);
+                return;
+            }
+        };
+
+        let tex_id = self.bound_textures[ti] as usize;
+        let tex = if tex_id == 0 {
+            &mut self.default_textures[ti]
+        } else {
+            &mut self.textures[tex_id]
+        };
+
+        match pname {
+            GL_TEXTURE_BORDER_COLOR => {
+                if params.len() >= 4 {
+                    tex.border_color = Vec4::new(params[0], params[1], params[2], params[3]);
+                }
+            }
+            _ => {
+                if !params.is_empty() {
+                    self.gl_tex_parameteri(target, pname, params[0] as GLint);
+                }
+            }
+        }
+    }
+
     pub fn gl_tex_parameteri(&mut self, target: GLenum, pname: GLenum, param: GLint) {
         let ti = match texture_target_index(target) {
             Some(i) => i,
@@ -938,11 +968,38 @@ impl GlContext {
         tex.d = 0;
         tex.format = format;
 
-        let byte_count = (width as usize) * (height as usize) * (components as usize);
+        let row_bytes = (width as usize) * (components as usize);
+        let byte_count = row_bytes * (height as usize);
+
         if let Some(d) = data {
-            tex.data = d[..byte_count.min(d.len())].to_vec();
-            if tex.data.len() < byte_count {
-                tex.data.resize(byte_count, 0);
+            // Handle unpack_alignment: compute padded row length in source data
+            let align = self.unpack_alignment as usize;
+            let padding_needed = row_bytes % align;
+            let padded_row_len = if padding_needed == 0 {
+                row_bytes
+            } else {
+                row_bytes + align - padding_needed
+            };
+
+            if padded_row_len == row_bytes {
+                // No padding needed, simple copy
+                tex.data = d[..byte_count.min(d.len())].to_vec();
+                if tex.data.len() < byte_count {
+                    tex.data.resize(byte_count, 0);
+                }
+            } else {
+                // Copy row by row, stripping padding
+                tex.data = vec![0u8; byte_count];
+                for row in 0..(height as usize) {
+                    let src_off = row * padded_row_len;
+                    let dst_off = row * row_bytes;
+                    let src_end = (src_off + row_bytes).min(d.len());
+                    if src_off < d.len() {
+                        let copy_len = src_end - src_off;
+                        tex.data[dst_off..dst_off + copy_len]
+                            .copy_from_slice(&d[src_off..src_end]);
+                    }
+                }
             }
         } else {
             tex.data = vec![0u8; byte_count];

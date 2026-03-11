@@ -24,7 +24,10 @@ const EPSILON: f32 = 0.000001;
 fn wrap(i: i32, size: i32, mode: GLenum) -> i32 {
     match mode {
         GL_REPEAT => ((i % size) + size) % size,
-        GL_CLAMP_TO_EDGE | GL_CLAMP_TO_BORDER => i.clamp(0, size - 1),
+        GL_CLAMP_TO_EDGE => i.clamp(0, size - 1),
+        GL_CLAMP_TO_BORDER => {
+            if i < 0 || i >= size { -1 } else { i }
+        }
         GL_MIRRORED_REPEAT => {
             let sz2 = 2 * size;
             let mut v = ((i % sz2) + sz2) % sz2;
@@ -125,6 +128,7 @@ impl GlContext {
 
         if t.mag_filter == GL_NEAREST {
             let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
+            if i0 < 0 { return t.border_color; }
             color_from_u32(texdata[i0 as usize])
         } else {
             // GL_LINEAR
@@ -134,9 +138,9 @@ impl GlContext {
             if alpha < 0.0 {
                 alpha += 1.0;
             }
-            let ci = color_from_u32(texdata[i0 as usize]) * (1.0 - alpha);
-            let ci1 = color_from_u32(texdata[i1 as usize]) * alpha;
-            ci + ci1
+            let ci = if i0 < 0 { t.border_color } else { color_from_u32(texdata[i0 as usize]) };
+            let ci1 = if i1 < 0 { t.border_color } else { color_from_u32(texdata[i1 as usize]) };
+            ci * (1.0 - alpha) + ci1 * alpha
         }
     }
 
@@ -162,6 +166,7 @@ impl GlContext {
         if t.mag_filter == GL_NEAREST {
             let i0 = wrap(xw.floor_() as i32, t.w, t.wrap_s);
             let j0 = wrap(yh.floor_() as i32, t.h, t.wrap_t);
+            if (i0 | j0) < 0 { return t.border_color; }
             color_from_u32(texdata[(j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear interpolation
@@ -179,10 +184,11 @@ impl GlContext {
                 beta += 1.0;
             }
 
-            let cij = color_from_u32(texdata[(j0 * tw + i0) as usize]);
-            let ci1j = color_from_u32(texdata[(j0 * tw + i1) as usize]);
-            let cij1 = color_from_u32(texdata[(j1 * tw + i0) as usize]);
-            let ci1j1 = color_from_u32(texdata[(j1 * tw + i1) as usize]);
+            let bc = t.border_color;
+            let cij = if (i0 | j0) < 0 { bc } else { color_from_u32(texdata[(j0 * tw + i0) as usize]) };
+            let ci1j = if (i1 | j0) < 0 { bc } else { color_from_u32(texdata[(j0 * tw + i1) as usize]) };
+            let cij1 = if (i0 | j1) < 0 { bc } else { color_from_u32(texdata[(j1 * tw + i0) as usize]) };
+            let ci1j1 = if (i1 | j1) < 0 { bc } else { color_from_u32(texdata[(j1 * tw + i1) as usize]) };
 
             cij * ((1.0 - alpha) * (1.0 - beta))
                 + ci1j * (alpha * (1.0 - beta))
@@ -344,6 +350,7 @@ impl GlContext {
         if t.mag_filter == GL_NEAREST {
             let i0 = wrap(x.floor_() as i32, t.w, t.wrap_s);
             let j0 = wrap(y.floor_() as i32, t.h, t.wrap_t);
+            if (i0 | j0) < 0 { return t.border_color; }
             color_from_u32(texdata[(j0 * tw + i0) as usize])
         } else {
             // GL_LINEAR — bilinear interpolation
@@ -361,10 +368,11 @@ impl GlContext {
                 beta += 1.0;
             }
 
-            let cij = color_from_u32(texdata[(j0 * tw + i0) as usize]);
-            let ci1j = color_from_u32(texdata[(j0 * tw + i1) as usize]);
-            let cij1 = color_from_u32(texdata[(j1 * tw + i0) as usize]);
-            let ci1j1 = color_from_u32(texdata[(j1 * tw + i1) as usize]);
+            let bc = t.border_color;
+            let cij = if (i0 | j0) < 0 { bc } else { color_from_u32(texdata[(j0 * tw + i0) as usize]) };
+            let ci1j = if (i1 | j0) < 0 { bc } else { color_from_u32(texdata[(j0 * tw + i1) as usize]) };
+            let cij1 = if (i0 | j1) < 0 { bc } else { color_from_u32(texdata[(j1 * tw + i0) as usize]) };
+            let ci1j1 = if (i1 | j1) < 0 { bc } else { color_from_u32(texdata[(j1 * tw + i1) as usize]) };
 
             cij * ((1.0 - alpha) * (1.0 - beta))
                 + ci1j * (alpha * (1.0 - beta))
@@ -601,6 +609,7 @@ mod tests {
             type_: GL_TEXTURE_2D,
             deleted: false,
             user_owned: false,
+            border_color: Vec4::new(0.0, 0.0, 0.0, 0.0),
             data,
         }
     }
@@ -724,6 +733,7 @@ mod tests {
             type_: GL_TEXTURE_1D,
             deleted: false,
             user_owned: false,
+            border_color: Vec4::new(0.0, 0.0, 0.0, 0.0),
             data,
         };
         let ctx = make_context_with_texture(tex);
