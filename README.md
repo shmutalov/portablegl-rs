@@ -1,6 +1,10 @@
 PortableGL-rs
 =============
 
+[![crates.io](https://img.shields.io/crates/v/portablegl.svg)](https://crates.io/crates/portablegl)
+[![CI](https://github.com/shmutalov/portablegl-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/shmutalov/portablegl-rs/actions/workflows/ci.yml)
+[![license](https://img.shields.io/crates/l/portablegl.svg)](LICENSE)
+
 ***"Because of the nature of Moore's law, anything that an extremely clever graphics programmer can do at one point can be replicated by a merely competent programmer some number of years later."*** -John Carmack
 
 PortableGL-rs is a Rust port of [PortableGL](https://github.com/rswinkle/PortableGL), an implementation of OpenGL 3.x core
