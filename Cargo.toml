@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "A pure Rust software implementation of OpenGL 3.x core profile, ported from PortableGL"
 license = "MIT"
+repository = "https://github.com/shmutalov/portablegl-rs"
+keywords = ["opengl", "software-renderer", "graphics", "no-std", "rasterization"]
+categories = ["graphics", "rendering", "no-std"]
+readme = "README.md"
 
 [lib]
 crate-type = ["lib", "cdylib", "staticlib"]
