@@ -12,6 +12,7 @@ mod imp {
     #[inline(always)] pub fn min(a: f32, b: f32) -> f32 { a.min(b) }
     #[inline(always)] pub fn max(a: f32, b: f32) -> f32 { a.max(b) }
     #[inline(always)] pub fn clamp(x: f32, lo: f32, hi: f32) -> f32 { x.clamp(lo, hi) }
+    #[inline(always)] pub fn round(x: f32) -> f32 { x.round() }
     #[inline(always)] pub fn sin(x: f32) -> f32 { x.sin() }
     #[inline(always)] pub fn cos(x: f32) -> f32 { x.cos() }
     #[inline(always)] pub fn tan(x: f32) -> f32 { x.tan() }
@@ -35,6 +36,7 @@ mod imp {
     pub fn clamp(x: f32, lo: f32, hi: f32) -> f32 {
         if x < lo { lo } else if x > hi { hi } else { x }
     }
+    #[inline(always)] pub fn round(x: f32) -> f32 { libm::roundf(x) }
     #[inline(always)] pub fn sin(x: f32) -> f32 { libm::sinf(x) }
     #[inline(always)] pub fn cos(x: f32) -> f32 { libm::cosf(x) }
     #[inline(always)] pub fn tan(x: f32) -> f32 { libm::tanf(x) }
@@ -51,6 +53,7 @@ pub trait F32Ext {
     fn min_(self, other: f32) -> f32;
     fn max_(self, other: f32) -> f32;
     fn clamp_(self, lo: f32, hi: f32) -> f32;
+    fn round_(self) -> f32;
     fn sin_(self) -> f32;
     fn cos_(self) -> f32;
     fn tan_(self) -> f32;
@@ -64,6 +67,7 @@ impl F32Ext for f32 {
     #[inline(always)] fn min_(self, other: f32) -> f32 { min(self, other) }
     #[inline(always)] fn max_(self, other: f32) -> f32 { max(self, other) }
     #[inline(always)] fn clamp_(self, lo: f32, hi: f32) -> f32 { clamp(self, lo, hi) }
+    #[inline(always)] fn round_(self) -> f32 { round(self) }
     #[inline(always)] fn sin_(self) -> f32 { sin(self) }
     #[inline(always)] fn cos_(self) -> f32 { cos(self) }
     #[inline(always)] fn tan_(self) -> f32 { tan(self) }

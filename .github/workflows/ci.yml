@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [master]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-and-test:
     name: Build & Test (${{ matrix.os }})
@@ -45,8 +48,11 @@ jobs:
       - name: Build (FFI)
         run: cargo build --target ${{ matrix.target }} --release --features ffi
 
-      - name: Build (no_std)
-        run: cargo build --target ${{ matrix.target }} --release --features no_std
+      - name: Check (no_std)
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          rustup target add thumbv7em-none-eabihf
+          cargo check --target thumbv7em-none-eabihf --features no_std --lib
 
       - name: Run tests
         run: cargo test --target ${{ matrix.target }} --release

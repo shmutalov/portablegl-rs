@@ -1556,7 +1556,7 @@ pub fn draw_thick_line(
     z1 = rsw_mapf(z1, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
     z2 = rsw_mapf(z2, -1.0, 1.0, c.depth_range_near, c.depth_range_far);
 
-    let width = c.line_width.round();
+    let width = c.line_width.round_();
     let width = if width == 0.0 { 1.0 } else { width };
     let half_w = width * 0.5;
 
