@@ -1733,6 +1733,13 @@ impl GlContext {
         self.scissor_ly = y;
         self.scissor_w = width;
         self.scissor_h = height;
+
+        let ux = x + width;
+        let uy = y + height;
+        self.lx = x.max(0);
+        self.ly = y.max(0);
+        self.ux = ux.min(self.back_buffer.w);
+        self.uy = uy.min(self.back_buffer.h);
     }
 
     pub fn gl_provoking_vertex(&mut self, mode: GLenum) {
@@ -2068,7 +2075,22 @@ impl GlContext {
             GL_POLYGON_OFFSET_POINT => self.poly_offset_pt = enabled,
             GL_POLYGON_OFFSET_LINE => self.poly_offset_line = enabled,
             GL_POLYGON_OFFSET_FILL => self.poly_offset_fill = enabled,
-            GL_SCISSOR_TEST => self.scissor_test = enabled,
+            GL_SCISSOR_TEST => {
+                self.scissor_test = enabled;
+                if enabled {
+                    let ux = self.scissor_lx + self.scissor_w;
+                    let uy = self.scissor_ly + self.scissor_h;
+                    self.lx = self.scissor_lx.max(0);
+                    self.ly = self.scissor_ly.max(0);
+                    self.ux = ux.min(self.back_buffer.w);
+                    self.uy = uy.min(self.back_buffer.h);
+                } else {
+                    self.lx = 0;
+                    self.ly = 0;
+                    self.ux = self.back_buffer.w;
+                    self.uy = self.back_buffer.h;
+                }
+            }
             GL_STENCIL_TEST => self.stencil_test = enabled,
             _ => {
                 set_err!(self, GL_INVALID_ENUM);
