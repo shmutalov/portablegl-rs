@@ -829,32 +829,39 @@ pub fn run_pipeline(
         }
         GL_LINES => {
             let n = (count / 2) as usize;
+            let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
             for i in 0..n {
                 let v1 = c.glverts[i * 2].clone();
                 let v2 = c.glverts[i * 2 + 1].clone();
-                draw_line_clip(c, &v1, &v2);
+                let provoke = if provoke_last { i * 2 + 1 } else { i * 2 };
+                draw_line_clip(c, &v1, &v2, provoke);
             }
         }
         GL_LINE_STRIP => {
             if count >= 2 {
+                let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
                 for i in 0..(count - 1) as usize {
                     let v1 = c.glverts[i].clone();
                     let v2 = c.glverts[i + 1].clone();
-                    draw_line_clip(c, &v1, &v2);
+                    let provoke = if provoke_last { i + 1 } else { i };
+                    draw_line_clip(c, &v1, &v2, provoke);
                 }
             }
         }
         GL_LINE_LOOP => {
             if count >= 2 {
+                let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
                 for i in 0..(count - 1) as usize {
                     let v1 = c.glverts[i].clone();
                     let v2 = c.glverts[i + 1].clone();
-                    draw_line_clip(c, &v1, &v2);
+                    let provoke = if provoke_last { i + 1 } else { i };
+                    draw_line_clip(c, &v1, &v2, provoke);
                 }
                 // Close the loop
                 let v1 = c.glverts[(count - 1) as usize].clone();
                 let v2 = c.glverts[0].clone();
-                draw_line_clip(c, &v1, &v2);
+                let provoke = if provoke_last { 0 } else { (count - 1) as usize };
+                draw_line_clip(c, &v1, &v2, provoke);
             }
         }
         GL_TRIANGLES => {
@@ -1405,7 +1412,7 @@ pub fn clip_line(denom: f32, num: f32, tmin: &mut f32, tmax: &mut f32) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Clip a line against the view volume, then draw it using `draw_thick_line`.
-pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex) {
+pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex, provoke: usize) {
     let cc1 = v1.clip_code;
     let cc2 = v2.clip_code;
 
@@ -1413,9 +1420,6 @@ pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex) {
     if (cc1 & cc2) != 0 {
         return;
     }
-
-    // Compute provoking vertex index (matches C pointer arithmetic)
-    let provoke = 0usize; // TODO: proper provoke index from glverts
 
     // Trivial accept: both inside
     if (cc1 | cc2) == 0 {
