@@ -11,6 +11,7 @@ pub mod gl_impl;
 pub mod gl_glsl;
 pub mod gl_internal;
 pub mod pgl_ext;
+pub mod pgl_shaders;
 
 #[cfg(feature = "ffi")]
 pub mod ffi;
