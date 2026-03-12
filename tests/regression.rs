@@ -2554,3 +2554,63 @@ fn test_texrect_wrap_modes_impl(ctx: &mut GlContext, argc: i32) {
 #[test] fn texrect_clamp2edge() { run_test("texrect_clamp2edge", |ctx| test_texrect_wrap_modes_impl(ctx, 1)); }
 #[test] fn texrect_mirroredrepeat() { run_test("texrect_mirroredrepeat", |ctx| test_texrect_wrap_modes_impl(ctx, 2)); }
 #[test] fn texrect_clamp2border() { run_test("texrect_clamp2border", |ctx| test_texrect_wrap_modes_impl(ctx, 3)); }
+
+// ============================================================
+// Math tests (ported from math_testing.cpp)
+// ============================================================
+
+fn cmp_m4(a: &Mat4, b: &Mat4, eps: f32) -> bool {
+    for i in 0..16 {
+        if (a.0[i] - b.0[i]).abs() >= eps {
+            return false;
+        }
+    }
+    true
+}
+
+#[test]
+fn math_perspective() {
+    use portablegl::math::make_perspective_m4;
+    let fov = 45.0f32.to_radians();
+    let aspect = 640.0 / 480.0;
+    let near = 0.1f32;
+    let far = 100.0f32;
+
+    let m = make_perspective_m4(fov, aspect, near, far);
+
+    // Reference values from GLM glm::perspective(fov, aspect, near, far)
+    let t = near * (fov * 0.5).tan();
+    let b = -t;
+    let r = t * aspect;
+    let l = -r;
+    let expected = Mat4([
+        2.0 * near / (r - l), 0.0,                  0.0,                            0.0,
+        0.0,                  2.0 * near / (t - b),  0.0,                            0.0,
+        0.0,                  0.0,                  -(far + near) / (far - near),   -1.0,
+        0.0,                  0.0,                  -2.0 * far * near / (far - near), 0.0,
+    ]);
+
+    assert!(cmp_m4(&m, &expected, 1e-6), "perspective matrix mismatch");
+}
+
+#[test]
+fn math_ortho_perspective_decomposition() {
+    use portablegl::math::{make_perspective_m4, make_orthographic_m4, make_pers_m4, mult_m4_m4};
+    let fov = 45.0f32.to_radians();
+    let aspect = 640.0 / 480.0;
+    let near = 0.1f32;
+    let far = 100.0f32;
+
+    let pers_proj = make_perspective_m4(fov, aspect, near, far);
+
+    // Decompose: perspective = ortho * pers
+    let pers_mat = make_pers_m4(near, far);
+    let t = near * (fov * 0.5).tan();
+    let b = -t;
+    let l = b * aspect;
+    let r = -l;
+    let ortho = make_orthographic_m4(l, r, b, t, -near, -far);
+    let result = mult_m4_m4(ortho, pers_mat);
+
+    assert!(cmp_m4(&result, &pers_proj, 1e-6), "O*P != perspective projection");
+}

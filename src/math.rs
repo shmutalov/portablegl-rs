@@ -947,11 +947,24 @@ pub fn make_orthographic_m4(l: f32, r: f32, b: f32, t: f32, n: f32, f: f32) -> M
     let mut m = [0.0f32; 16];
     m[0] = 2.0 / (r - l);
     m[5] = 2.0 / (t - b);
-    m[10] = -2.0 / (f - n);
+    m[10] = 2.0 / (f - n);
     m[12] = -(r + l) / (r - l);
     m[13] = -(t + b) / (t - b);
-    m[14] = -(f + n) / (f - n);
+    m[14] = -(n + f) / (f - n);
     m[15] = 1.0;
+    Mat4(m)
+}
+
+/// Build a perspective-only matrix (no orthographic projection).
+/// Used with an orthographic matrix to decompose the full perspective projection.
+/// z_near and z_far are always positive and z_near < z_far.
+pub fn make_pers_m4(z_near: f32, z_far: f32) -> Mat4 {
+    let mut m = [0.0f32; 16];
+    m[0] = z_near;
+    m[5] = z_near;
+    m[10] = z_near + z_far;
+    m[14] = z_far * z_near;
+    m[11] = -1.0;
     Mat4(m)
 }
 
