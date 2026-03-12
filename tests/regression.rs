@@ -2406,6 +2406,151 @@ fn test_unpackalignment_impl(ctx: &mut GlContext) {
 
 #[test] fn unpack_alignment() { run_test("unpack_alignment", |ctx| test_unpackalignment_impl(ctx)); }
 
-// TODO: texrect tests require external texture loading
-// (texrect_nearest, texrect_linear, texrect_repeat, texrect_clamp2edge,
-//  texrect_mirroredrepeat, texrect_clamp2border)
+// ============================================================================
+// Helper: load a PNG file as RGBA u8 bytes (for use as texture data)
+// ============================================================================
+fn load_png_as_rgba_bytes(path: &str) -> (Vec<u8>, u32, u32) {
+    let (pixels, w, h) = load_png(path)
+        .unwrap_or_else(|| panic!("Failed to load PNG: {}", path));
+    // load_png returns u32 in ABGR format; convert back to RGBA bytes
+    let mut bytes = Vec::with_capacity((w * h * 4) as usize);
+    for &px in &pixels {
+        let [r, g, b, a] = abgr_to_rgba(px);
+        bytes.push(r);
+        bytes.push(g);
+        bytes.push(b);
+        bytes.push(a);
+    }
+    (bytes, w, h)
+}
+
+// ============================================================================
+// Texrect filtering tests (from test_texturing.cpp test_texrect_filtering)
+// ============================================================================
+
+fn test_texrect_filtering_impl(ctx: &mut GlContext, argc: i32) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        0.0, 0.0,
+        0.0, 511.0,
+        511.0, 0.0,
+        511.0, 511.0,
+    ];
+
+    let (tex_data, tw, th) = load_png_as_rgba_bytes("testing/media/tex04.png");
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_RECTANGLE, textures[0]).unwrap();
+
+    let magfilter = if argc != 0 { GL_LINEAR } else { GL_NEAREST };
+    let wrapping = GL_REPEAT;
+
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_S, wrapping as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_T, wrapping as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, magfilter as GLint);
+
+    let green: [GLfloat; 4] = [0.0, 1.0, 0.0, 1.0];
+    ctx.gl_tex_parameterfv(GL_TEXTURE_RECTANGLE, GL_TEXTURE_BORDER_COLOR, &green);
+
+    ctx.gl_pixel_storei(GL_UNPACK_ALIGNMENT, 1);
+    ctx.gl_tex_image_2d(GL_TEXTURE_RECTANGLE, 0, GL_RGBA as GLint, tw as GLsizei, th as GLsizei, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&tex_data));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_TEXCOORD0);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_TEXCOORD0, 2, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_TEX_RECT_REPLACE]);
+
+    let mut the_uniforms = PglUniforms::default();
+    the_uniforms.mvp_mat = Mat4::identity();
+    the_uniforms.tex0 = textures[0];
+    the_uniforms.ctx = ctx as *const GlContext;
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn texrect_nearest() { run_test("texrect_nearest", |ctx| test_texrect_filtering_impl(ctx, 0)); }
+#[test] fn texrect_linear() { run_test("texrect_linear", |ctx| test_texrect_filtering_impl(ctx, 1)); }
+
+// ============================================================================
+// Texrect wrap mode tests (from test_texturing.cpp test_texrect_wrap_modes)
+// ============================================================================
+
+fn test_texrect_wrap_modes_impl(ctx: &mut GlContext, argc: i32) {
+    let points: [f32; 12] = [
+        -0.8,  0.8, -0.1,
+        -0.8, -0.8, -0.1,
+         0.8,  0.8, -0.1,
+         0.8, -0.8, -0.1,
+    ];
+    let tex_coords: [f32; 8] = [
+        -512.0, -512.0,
+        -512.0, 1024.0,
+        1024.0, -512.0,
+        1024.0, 1024.0,
+    ];
+
+    let (tex_data, tw, th) = load_png_as_rgba_bytes("testing/media/tex04.png");
+
+    let textures = ctx.gl_gen_textures(1);
+    ctx.gl_bind_texture(GL_TEXTURE_RECTANGLE, textures[0]).unwrap();
+
+    let wrapping = match argc {
+        0 => GL_REPEAT,
+        1 => GL_CLAMP_TO_EDGE,
+        2 => GL_MIRRORED_REPEAT,
+        3 => GL_CLAMP_TO_BORDER,
+        _ => GL_REPEAT,
+    };
+
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_S, wrapping as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_WRAP_T, wrapping as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MIN_FILTER, GL_NEAREST as GLint);
+    ctx.gl_tex_parameteri(GL_TEXTURE_RECTANGLE, GL_TEXTURE_MAG_FILTER, GL_NEAREST as GLint);
+
+    let green: [GLfloat; 4] = [0.0, 1.0, 0.0, 1.0];
+    ctx.gl_tex_parameterfv(GL_TEXTURE_RECTANGLE, GL_TEXTURE_BORDER_COLOR, &green);
+
+    ctx.gl_pixel_storei(GL_UNPACK_ALIGNMENT, 1);
+    ctx.gl_tex_image_2d(GL_TEXTURE_RECTANGLE, 0, GL_RGBA as GLint, tw as GLsizei, th as GLsizei, 0, GL_RGBA, GL_UNSIGNED_BYTE, Some(&tex_data));
+
+    setup_vbo(ctx, &points);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_VERT);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_VERT, 3, GL_FLOAT, false, 0, 0);
+
+    setup_vbo(ctx, &tex_coords);
+    ctx.gl_enable_vertex_attrib_array(PGL_ATTR_TEXCOORD0);
+    ctx.gl_vertex_attrib_pointer(PGL_ATTR_TEXCOORD0, 2, GL_FLOAT, false, 0, 0);
+
+    let std_shaders = pgl_init_std_shaders(ctx);
+    ctx.gl_use_program(std_shaders[PGL_SHADER_TEX_RECT_REPLACE]);
+
+    let mut the_uniforms = PglUniforms::default();
+    the_uniforms.mvp_mat = Mat4::identity();
+    the_uniforms.tex0 = textures[0];
+    the_uniforms.ctx = ctx as *const GlContext;
+    ctx.pgl_set_uniform(&mut the_uniforms as *mut PglUniforms as *mut c_void);
+
+    ctx.gl_clear_color(0.25, 0.25, 0.25, 1.0);
+    ctx.gl_clear(GL_COLOR_BUFFER_BIT);
+    ctx.gl_draw_arrays(GL_TRIANGLE_STRIP, 0, 4);
+}
+
+#[test] fn texrect_repeat() { run_test("texrect_repeat", |ctx| test_texrect_wrap_modes_impl(ctx, 0)); }
+#[test] fn texrect_clamp2edge() { run_test("texrect_clamp2edge", |ctx| test_texrect_wrap_modes_impl(ctx, 1)); }
+#[test] fn texrect_mirroredrepeat() { run_test("texrect_mirroredrepeat", |ctx| test_texrect_wrap_modes_impl(ctx, 2)); }
+#[test] fn texrect_clamp2border() { run_test("texrect_clamp2border", |ctx| test_texrect_wrap_modes_impl(ctx, 3)); }
