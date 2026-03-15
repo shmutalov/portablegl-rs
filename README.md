@@ -63,7 +63,7 @@ Differences from the C Version
 | Memory | Manual (`malloc`/`free`, `cvector`) | `Vec<T>`, RAII, ownership |
 | Pixel format | Preprocessor macros | Cargo feature flags |
 | Build system | Makefile / single header include | `cargo build` |
-| `no_std` | N/A (requires libc) | Supported via `no_std` feature + `alloc` |
+| `no_std` | Overridable alloc via macros; only requires `math.h`/`stdint.h` | Supported via `no_std` feature + `alloc` |
 | C FFI | Native | Optional via `ffi` feature flag |
 | Thread safety | Global mutable state | Owned `GlContext` per thread (FFI uses global for C compat) |
 
