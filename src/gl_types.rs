@@ -708,13 +708,13 @@ impl Default for GlTexture {
 }
 
 /// A transformed vertex with clip/screen space coordinates and shader outputs.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlVertex {
     pub clip_space: Vec4,
     pub screen_space: Vec4,
     pub clip_code: i32,
     pub edge_flag: i32,
-    pub vs_out: Vec<f32>,
+    pub vs_out: [f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS],
 }
 
 impl Default for GlVertex {
@@ -724,7 +724,7 @@ impl Default for GlVertex {
             screen_space: Vec4::default(),
             clip_code: 0,
             edge_flag: 0,
-            vs_out: Vec::new(),
+            vs_out: [0.0; GL_MAX_VERTEX_OUTPUT_COMPONENTS],
         }
     }
 }

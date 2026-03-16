@@ -666,7 +666,6 @@ pub fn do_vertex(
     c.glverts[vert].clip_code = gl_clipcode(c.builtins.gl_Position, c.depth_clamp);
 
     // Copy vertex shader outputs
-    c.glverts[vert].vs_out.resize(vs_output_size, 0.0);
     c.glverts[vert].vs_out[..vs_output_size].copy_from_slice(vs_out);
 }
 
@@ -1290,9 +1289,12 @@ pub fn setup_fs_input(
 
     // Get provoking vertex outputs for flat shading
     let provoke_out = if provoke < c.glverts.len() {
-        c.glverts[provoke].vs_out.clone()
+        c.glverts[provoke].vs_out
     } else {
-        v1_out.to_vec()
+        let mut tmp = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+        let n = vs_output_size.min(v1_out.len());
+        tmp[..n].copy_from_slice(&v1_out[..n]);
+        tmp
     };
 
     let one_minus_t = 1.0 - t;
@@ -1477,8 +1479,8 @@ pub fn draw_line_clip(c: &mut GlContext, v1: &GlVertex, v2: &GlVertex, provoke: 
 
     // Interpolate vs_out for clipped endpoints
     let vs_size = c.vs_output.size as usize;
-    let mut v1_out_clipped = vec![0.0f32; vs_size];
-    let mut v2_out_clipped = vec![0.0f32; vs_size];
+    let mut v1_out_clipped = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+    let mut v2_out_clipped = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
 
     for j in 0..vs_size {
         v1_out_clipped[j] = v1.vs_out[j] + (v2.vs_out[j] - v1.vs_out[j]) * tmin;
@@ -2100,7 +2102,7 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             c.builtins.gl_PointCoord = Vec2::new(pcx, pcy);
 
             // Copy vertex outputs to fs_input (points use flat shading for all)
-            for j in 0..vs_output_size.min(vert.vs_out.len()) {
+            for j in 0..vs_output_size {
                 c.fs_input[j] = vert.vs_out[j];
             }
 
@@ -2401,9 +2403,8 @@ fn clip_lerp_factor(clip_bit: i32, a: &Vec4, b: &Vec4) -> f32 {
 fn interpolate_vertex(v0: &GlVertex, v1: &GlVertex, t: f32, depth_clamp: bool) -> GlVertex {
     let clip_space = Vec4::add(v0.clip_space, Vec4::sub(v1.clip_space, v0.clip_space) * t);
 
-    let vs_size = v0.vs_out.len();
-    let mut vs_out = vec![0.0f32; vs_size];
-    for j in 0..vs_size {
+    let mut vs_out = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+    for j in 0..GL_MAX_VERTEX_OUTPUT_COMPONENTS {
         vs_out[j] = v0.vs_out[j] + (v1.vs_out[j] - v0.vs_out[j]) * t;
     }
 
