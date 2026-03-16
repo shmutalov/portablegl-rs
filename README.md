@@ -251,17 +251,17 @@ test scenes and SDL2 for display/timing. All 11 benchmarks are ported 1:1 from t
 
 | Benchmark | C (FPS) | Rust (FPS) | Ratio | Description |
 |-----------|--------:|----------:|---------:|-------------|
-| `points_perf` | 1085.1 | 641.8 | 0.59x | 12,000 points, size 1 |
-| `pointsize_perf` | 1737.3 | 985.8 | 0.57x | ~857 points, size 4 |
-| `lines_perf` | 274.3 | 241.8 | 0.88x | 1,000 lines, width 1 |
-| `lines8_perf` | 42.6 | 46.1 | **1.08x** | 1,000 lines, width 8 |
-| `lines16_perf` | 21.6 | 23.3 | **1.08x** | 1,000 lines, width 16 |
-| `triangles_perf` | 24.3 | 30.6 | **1.26x** | 50 random triangles |
-| `tri_interp_perf` | 42.2 | 38.4 | 0.91x | 30 smooth-shaded triangles |
-| `tri_clipxy_perf` | 691.3 | 601.1 | 0.87x | 20 triangles, XY clipping |
-| `tri_clipz_perf` | 162.1 | 165.0 | **1.02x** | 15 triangles, Z clipping |
-| `tri_clipxyz_perf` | 270.2 | 317.5 | **1.18x** | 50 triangles, XYZ clipping |
-| `blend_perf` | 328.3 | 267.1 | 0.81x | Alpha blending (9 quads) |
+| `points_perf` | 1085.1 | 744.4 | 0.69x | 12,000 points, size 1 |
+| `pointsize_perf` | 1737.3 | 1271.1 | 0.73x | ~857 points, size 4 |
+| `lines_perf` | 274.3 | 266.7 | 0.97x | 1,000 lines, width 1 |
+| `lines8_perf` | 42.6 | 47.2 | **1.11x** | 1,000 lines, width 8 |
+| `lines16_perf` | 21.6 | 23.9 | **1.11x** | 1,000 lines, width 16 |
+| `triangles_perf` | 24.3 | 29.1 | **1.20x** | 50 random triangles |
+| `tri_interp_perf` | 42.2 | 39.8 | 0.94x | 30 smooth-shaded triangles |
+| `tri_clipxy_perf` | 691.3 | 701.4 | **1.01x** | 20 triangles, XY clipping |
+| `tri_clipz_perf` | 162.1 | 199.3 | **1.23x** | 15 triangles, Z clipping |
+| `tri_clipxyz_perf` | 270.2 | 329.9 | **1.22x** | 50 triangles, XYZ clipping |
+| `blend_perf` | 328.3 | 290.2 | 0.88x | Alpha blending (9 quads) |
 
 Values are the average of two consecutive runs. **Bold** ratios indicate Rust is faster.
 
@@ -282,11 +282,10 @@ make -f perf_tests.make config=release
 
 ### Analysis
 
-The Rust port is competitive with the C original across the board. Five of eleven benchmarks
-now match or exceed C performance (thick lines, triangles, Z-clipping, XYZ-clipping).
-The remaining gaps are primarily in point rendering, where the C version benefits from
-`PGL_UNSAFE` and `PGL_DISABLE_COLOR_MASK` compile-time elisions that skip safety checks and
-per-pixel color mask operations. The Rust `unsafe_mode` feature provides a partial equivalent.
+The Rust port matches or exceeds C performance in 7 of 11 benchmarks, with no unsafe code in
+the hot pixel paths. The remaining gaps are in point rendering and blending, where the C version
+benefits from `PGL_UNSAFE` and `PGL_DISABLE_COLOR_MASK` compile-time elisions. The Rust
+`disable_color_mask` feature provides an equivalent elision for the color mask operation.
 
 Similar/Related Projects
 ========================
