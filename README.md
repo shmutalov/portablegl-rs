@@ -224,10 +224,19 @@ as well as the [LearnPortableGL](https://github.com/rswinkle/LearnPortableGL) tu
 The official OpenGL [reference pages](https://www.khronos.org/registry/OpenGL-Refpages/gl4/)
 cover 90-95% of the API usage.
 
+Real-World Example: Craft-rs
+=============================
+
+[Craft-rs](https://github.com/shmutalov/craft-rs) is a Rust port of [Craft](https://github.com/fogleman/Craft)
+(a Minecraft clone by Michael Fogleman) that uses PortableGL-rs for all rendering — no GPU required.
+It demonstrates the library in a real-world application with textured voxel terrain, ambient occlusion,
+day/night cycle, procedural world generation, and multiple shader programs (block, sky, text, line).
+
 Similar/Related Projects
 ========================
 
 - [PortableGL](https://github.com/rswinkle/PortableGL) - The original C99 implementation this is ported from.
+- [Craft-rs](https://github.com/shmutalov/craft-rs) - Minecraft clone running on PortableGL-rs (Rust port of Craft).
 - [pgl](https://github.com/TotallyGamerJet/pgl) - A Go port of PortableGL.
 - [TinyGL](https://bellard.org/TinyGL/) - Fabrice Bellard's OpenGL 1.x subset implementation.
 - [Mesa3D](https://mesa3d.org/) - Full open source OpenGL/Vulkan implementation with software renderers.
