@@ -1217,10 +1217,10 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
 
     let buf_idx = ((buf_h - 1 - y) * buf_w + x) as usize;
 
-    let dest_pixel = read_backbuf_pixel(c, buf_idx);
     let mut pixel_val;
 
     if c.blend {
+        let dest_pixel = read_backbuf_pixel(c, buf_idx);
         let dst_color = pixel_to_color(dest_pixel).to_vec4();
         let blended = blend_pixel(c, cf, dst_color);
         pixel_val = rgba_to_pixel(blended.r, blended.g, blended.b, blended.a);
@@ -1230,11 +1230,14 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
     }
 
     if c.logic_ops {
+        let dest_pixel = read_backbuf_pixel(c, buf_idx);
         pixel_val = logic_ops_pixel(c.logic_func, pixel_val, dest_pixel);
     }
 
     // Apply color mask
+    #[cfg(not(feature = "disable_color_mask"))]
     if c.color_mask != 0xFFFFFFFF {
+        let dest_pixel = read_backbuf_pixel(c, buf_idx);
         pixel_val = (pixel_val & c.color_mask) | (dest_pixel & !c.color_mask);
     }
 
