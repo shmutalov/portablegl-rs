@@ -1327,7 +1327,8 @@ pub fn setup_fs_input(
 /// coordinates and the three vertex outputs.
 ///
 /// `alpha`, `beta`, `gamma` are the barycentric weights.
-/// `w0`, `w1`, `w2` are the clip-space w values for perspective correction.
+/// `persp0`, `persp1`, `persp2` are the pre-divided vertex outputs (v_out[j] / w).
+/// `inv_w0`, `inv_w1`, `inv_w2` are the reciprocal clip-space w values.
 fn setup_fs_input_triangle(
     c: &mut GlContext,
     alpha: f32,
@@ -1336,24 +1337,29 @@ fn setup_fs_input_triangle(
     v0_out: &[f32],
     v1_out: &[f32],
     v2_out: &[f32],
-    w0: f32,
-    w1: f32,
-    w2: f32,
+    persp0: &[f32],
+    persp1: &[f32],
+    persp2: &[f32],
+    inv_w0: f32,
+    inv_w1: f32,
+    inv_w2: f32,
     provoke_out: &[f32],
     interp: &[GLenum],
 ) {
     let vs_output_size = c.vs_output.size as usize;
 
+    // Pre-compute w_interp once for all smooth varyings (same for every j)
+    let w_interp = alpha * inv_w0 + beta * inv_w1 + gamma * inv_w2;
+    let use_perspective = w_interp.abs_() > 1e-10;
+    let inv_w_interp = if use_perspective { 1.0 / w_interp } else { 0.0 };
+
     for j in 0..vs_output_size {
         match interp[j] {
             PGL_SMOOTH => {
-                // Perspective-correct interpolation
-                let val = alpha * v0_out[j] / w0
-                    + beta * v1_out[j] / w1
-                    + gamma * v2_out[j] / w2;
-                let w_interp = alpha / w0 + beta / w1 + gamma / w2;
-                if w_interp.abs_() > 1e-10 {
-                    c.fs_input[j] = val / w_interp;
+                if use_perspective {
+                    // Perspective-correct: multiply-accumulate with pre-divided outputs
+                    let val = alpha * persp0[j] + beta * persp1[j] + gamma * persp2[j];
+                    c.fs_input[j] = val * inv_w_interp;
                 } else {
                     c.fs_input[j] =
                         alpha * v0_out[j] + beta * v1_out[j] + gamma * v2_out[j];
@@ -2484,6 +2490,21 @@ pub fn draw_triangle_fill(
     let w1 = v1.screen_space.w;
     let w2 = v2.screen_space.w;
 
+    // Pre-compute reciprocal w and perspective-divided vertex outputs
+    // This moves 3*N divisions out of the per-pixel loop into the per-triangle setup
+    let inv_w0 = 1.0 / w0;
+    let inv_w1 = 1.0 / w1;
+    let inv_w2 = 1.0 / w2;
+    let vs_output_size = c.vs_output.size as usize;
+    let mut persp0 = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+    let mut persp1 = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+    let mut persp2 = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
+    for j in 0..vs_output_size {
+        persp0[j] = v0.vs_out[j] * inv_w0;
+        persp1[j] = v1.vs_out[j] * inv_w1;
+        persp2[j] = v2.vs_out[j] * inv_w2;
+    }
+
     let fragdepth_or_discard = c.fragdepth_or_discard;
     let depth_range_near = c.depth_range_near;
     let depth_range_far = c.depth_range_far;
@@ -2556,9 +2577,12 @@ pub fn draw_triangle_fill(
                 &v0.vs_out,
                 &v1.vs_out,
                 &v2.vs_out,
-                w0,
-                w1,
-                w2,
+                &persp0,
+                &persp1,
+                &persp2,
+                inv_w0,
+                inv_w1,
+                inv_w2,
                 &provoke_out,
                 &interp,
             );
