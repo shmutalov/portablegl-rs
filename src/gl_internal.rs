@@ -807,7 +807,8 @@ pub fn run_pipeline(
                     continue;
                 }
                 c.glverts[i].screen_space = mult_m4_v4(c.vp_mat, c.glverts[i].clip_space);
-                let vert = c.glverts[i].clone();
+                // Copy vertex to stack to avoid borrow conflict with c
+                let vert = c.glverts[i];
                 draw_point(c, &vert, 0.0);
             }
         }
@@ -924,7 +925,7 @@ pub fn run_pipeline_with_fs<FS: FragmentShader>(
                             continue;
                         }
                         c.glverts[i].screen_space = mult_m4_v4(c.vp_mat, c.glverts[i].clip_space);
-                        let vert = c.glverts[i].clone();
+                        let vert = c.glverts[i];
                         draw_point(c, &vert, 0.0);
                     }
                 }
