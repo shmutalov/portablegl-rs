@@ -544,6 +544,51 @@ pub type FragFunc = unsafe extern "C" fn(
     uniforms: *mut c_void,
 );
 
+/// Trait for fragment shaders that can be monomorphized by LLVM.
+///
+/// By default, fragment shaders are called through `FragFunc` function pointers,
+/// which are indirect calls that LLVM cannot inline. Implement this trait on a
+/// concrete type to allow LLVM to inline the shader body into the rasterization
+/// loop, eliminating per-pixel indirect call overhead.
+///
+/// # Example
+///
+/// ```ignore
+/// struct MyFragShader {
+///     uniform: *mut c_void,
+/// }
+///
+/// impl FragmentShader for MyFragShader {
+///     #[inline(always)]
+///     unsafe fn shade(&self, fs_input: *mut f32, builtins: *mut ShaderBuiltins) {
+///         (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 0.0, 1.0);
+///     }
+/// }
+/// ```
+pub trait FragmentShader {
+    /// Execute the fragment shader for one pixel.
+    ///
+    /// # Safety
+    ///
+    /// `fs_input` must point to a valid array of at least `vs_output_size` floats.
+    /// `builtins` must point to a valid `ShaderBuiltins`.
+    unsafe fn shade(&self, fs_input: *mut f32, builtins: *mut ShaderBuiltins);
+}
+
+/// Wrapper that calls a `FragFunc` function pointer. Used internally to run
+/// the existing function-pointer-based shaders through the generic pipeline.
+pub struct FnPtrFragShader {
+    pub fs: FragFunc,
+    pub uniform: *mut c_void,
+}
+
+impl FragmentShader for FnPtrFragShader {
+    #[inline(always)]
+    unsafe fn shade(&self, fs_input: *mut f32, builtins: *mut ShaderBuiltins) {
+        (self.fs)(fs_input, builtins, self.uniform);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Core data structures
 // ---------------------------------------------------------------------------

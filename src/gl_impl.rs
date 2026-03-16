@@ -1330,6 +1330,29 @@ impl GlContext {
         gl_internal::run_pipeline(self, mode, first as usize, count, 1, 0, false);
     }
 
+    /// Like [`gl_draw_arrays`](Self::gl_draw_arrays), but accepts a monomorphizable
+    /// fragment shader via the [`FragmentShader`] trait. LLVM can inline the shader
+    /// body into the rasterization loop, eliminating per-pixel indirect call overhead.
+    ///
+    /// Only affects triangle rendering (GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN).
+    /// Point and line modes fall back to the program's function-pointer shader.
+    pub fn gl_draw_arrays_with_fs<FS: FragmentShader>(
+        &mut self,
+        mode: GLenum,
+        first: GLint,
+        count: GLsizei,
+        shader: &FS,
+    ) {
+        if count <= 0 {
+            return;
+        }
+        if !self.validate_draw_mode(mode) {
+            return;
+        }
+        self.prepare_draw();
+        gl_internal::run_pipeline_with_fs(self, mode, first as usize, count, 1, 0, false, shader);
+    }
+
     pub fn gl_draw_elements(
         &mut self,
         mode: GLenum,

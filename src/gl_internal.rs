@@ -792,6 +792,13 @@ pub fn run_pipeline(
         use_elems_type,
     );
 
+    // Create fragment shader wrapper for the current program
+    let program_idx = c.cur_program as usize;
+    let frag_shader = FnPtrFragShader {
+        fs: c.programs[program_idx].fragment_shader,
+        uniform: c.programs[program_idx].uniform,
+    };
+
     match mode {
         GL_POINTS => {
             for i in 0..count as usize {
@@ -849,7 +856,7 @@ pub fn run_pipeline(
                 let i1 = i * 3 + 1;
                 let i2 = i * 3 + 2;
                 let provoke = if provoke_last { i2 } else { i0 };
-                draw_triangle(c, i0, i1, i2, provoke);
+                draw_triangle(c, i0, i1, i2, provoke, &frag_shader);
             }
         }
         GL_TRIANGLE_STRIP => {
@@ -862,7 +869,7 @@ pub fn run_pipeline(
                         (i + 1, i, i + 2)
                     };
                     let provoke = if provoke_last { i + 2 } else { i };
-                    draw_triangle(c, i0, i1, i2, provoke);
+                    draw_triangle(c, i0, i1, i2, provoke, &frag_shader);
                 }
             }
         }
@@ -871,7 +878,128 @@ pub fn run_pipeline(
                 let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
                 for i in 1..(count - 1) as usize {
                     let provoke = if provoke_last { i + 1 } else { i };
-                    draw_triangle(c, 0, i, i + 1, provoke);
+                    draw_triangle(c, 0, i, i + 1, provoke, &frag_shader);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Like [`run_pipeline`], but accepts a generic fragment shader for triangle modes.
+/// Points and lines fall back to the program's function-pointer shader.
+pub fn run_pipeline_with_fs<FS: FragmentShader>(
+    c: &mut GlContext,
+    mode: GLenum,
+    first: usize,
+    count: GLsizei,
+    instance_id: GLuint,
+    base_instance: GLuint,
+    use_elements: bool,
+    shader: &FS,
+) {
+    let use_elems_type = if use_elements { GL_UNSIGNED_INT } else { 0 };
+
+    vertex_stage(
+        c,
+        first as usize,
+        count,
+        instance_id as GLsizei,
+        base_instance,
+        use_elems_type,
+    );
+
+    match mode {
+        // Points and lines use the program's fn-pointer shader
+        GL_POINTS | GL_LINES | GL_LINE_STRIP | GL_LINE_LOOP => {
+            let program_idx = c.cur_program as usize;
+            let frag_shader = FnPtrFragShader {
+                fs: c.programs[program_idx].fragment_shader,
+                uniform: c.programs[program_idx].uniform,
+            };
+            match mode {
+                GL_POINTS => {
+                    for i in 0..count as usize {
+                        if c.glverts[i].clip_code & 0x3 != 0 {
+                            continue;
+                        }
+                        c.glverts[i].screen_space = mult_m4_v4(c.vp_mat, c.glverts[i].clip_space);
+                        let vert = c.glverts[i].clone();
+                        draw_point(c, &vert, 0.0);
+                    }
+                }
+                GL_LINES => {
+                    let n = (count / 2) as usize;
+                    let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+                    for i in 0..n {
+                        let v1 = c.glverts[i * 2].clone();
+                        let v2 = c.glverts[i * 2 + 1].clone();
+                        let provoke = if provoke_last { i * 2 + 1 } else { i * 2 };
+                        draw_line_clip(c, &v1, &v2, provoke);
+                    }
+                }
+                GL_LINE_STRIP => {
+                    if count >= 2 {
+                        let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+                        for i in 0..(count - 1) as usize {
+                            let v1 = c.glverts[i].clone();
+                            let v2 = c.glverts[i + 1].clone();
+                            let provoke = if provoke_last { i + 1 } else { i };
+                            draw_line_clip(c, &v1, &v2, provoke);
+                        }
+                    }
+                }
+                GL_LINE_LOOP => {
+                    if count >= 2 {
+                        let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+                        for i in 0..(count - 1) as usize {
+                            let v1 = c.glverts[i].clone();
+                            let v2 = c.glverts[i + 1].clone();
+                            let provoke = if provoke_last { i + 1 } else { i };
+                            draw_line_clip(c, &v1, &v2, provoke);
+                        }
+                        let v1 = c.glverts[(count - 1) as usize].clone();
+                        let v2 = c.glverts[0].clone();
+                        let provoke = if provoke_last { 0 } else { (count - 1) as usize };
+                        draw_line_clip(c, &v1, &v2, provoke);
+                    }
+                }
+                _ => {}
+            }
+            let _ = frag_shader; // suppress unused warning
+        }
+        // Triangle modes use the generic shader
+        GL_TRIANGLES => {
+            let n = (count / 3) as usize;
+            let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+            for i in 0..n {
+                let i0 = i * 3;
+                let i1 = i * 3 + 1;
+                let i2 = i * 3 + 2;
+                let provoke = if provoke_last { i2 } else { i0 };
+                draw_triangle(c, i0, i1, i2, provoke, shader);
+            }
+        }
+        GL_TRIANGLE_STRIP => {
+            if count >= 3 {
+                let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+                for i in 0..(count - 2) as usize {
+                    let (i0, i1, i2) = if i % 2 == 0 {
+                        (i, i + 1, i + 2)
+                    } else {
+                        (i + 1, i, i + 2)
+                    };
+                    let provoke = if provoke_last { i + 2 } else { i };
+                    draw_triangle(c, i0, i1, i2, provoke, shader);
+                }
+            }
+        }
+        GL_TRIANGLE_FAN => {
+            if count >= 3 {
+                let provoke_last = c.provoking_vert == GL_LAST_VERTEX_CONVENTION;
+                for i in 1..(count - 1) as usize {
+                    let provoke = if provoke_last { i + 1 } else { i };
+                    draw_triangle(c, 0, i, i + 1, provoke, shader);
                 }
             }
         }
@@ -2178,12 +2306,13 @@ pub fn calc_poly_offset(
 
 /// Entry point for triangle drawing - checks clip codes, dispatches to
 /// draw_triangle_final or draw_triangle_clip.
-pub fn draw_triangle(
+pub fn draw_triangle<FS: FragmentShader>(
     c: &mut GlContext,
     v0_idx: usize,
     v1_idx: usize,
     v2_idx: usize,
     provoke: usize,
+    shader: &FS,
 ) {
     let cc0 = c.glverts[v0_idx].clip_code;
     let cc1 = c.glverts[v1_idx].clip_code;
@@ -2206,23 +2335,24 @@ pub fn draw_triangle(
         let v0 = c.glverts[v0_idx].clone();
         let v1 = c.glverts[v1_idx].clone();
         let v2 = c.glverts[v2_idx].clone();
-        draw_triangle_final(c, &v0, &v1, &v2, provoke);
+        draw_triangle_final(c, &v0, &v1, &v2, provoke, shader);
     } else {
         // Need clipping
         let v0 = c.glverts[v0_idx].clone();
         let v1 = c.glverts[v1_idx].clone();
         let v2 = c.glverts[v2_idx].clone();
-        draw_triangle_clip(c, v0, v1, v2, provoke, 1);
+        draw_triangle_clip(c, v0, v1, v2, provoke, 1, shader);
     }
 }
 
 /// Apply viewport transform, face culling, then dispatch to fill/line/point rasterizer.
-pub fn draw_triangle_final(
+pub fn draw_triangle_final<FS: FragmentShader>(
     c: &mut GlContext,
     v0: &GlVertex,
     v1: &GlVertex,
     v2: &GlVertex,
     provoke: usize,
+    shader: &FS,
 ) {
     // Compute screen space: viewport transform on clip space (preserves w for perspective)
     // v4_to_v3h(screen_space) gives pixel coords, screen_space.w = clip_space.w
@@ -2259,10 +2389,10 @@ pub fn draw_triangle_final(
     };
 
     match tri_func {
-        TRIANGLE_FILL => draw_triangle_fill(c, &sv0, &sv1, &sv2, provoke),
+        TRIANGLE_FILL => draw_triangle_fill(c, &sv0, &sv1, &sv2, provoke, shader),
         TRIANGLE_LINE => draw_triangle_line(c, &sv0, &sv1, &sv2, provoke),
         TRIANGLE_POINT => draw_triangle_point(c, &sv0, &sv1, &sv2, provoke),
-        _ => draw_triangle_fill(c, &sv0, &sv1, &sv2, provoke),
+        _ => draw_triangle_fill(c, &sv0, &sv1, &sv2, provoke, shader),
     }
 }
 
@@ -2271,17 +2401,18 @@ pub fn draw_triangle_final(
 /// Recursively tests each clip plane (bit 1 through 32). When a plane
 /// clips the triangle, it produces 1 or 2 sub-triangles that are passed
 /// to the next plane.
-pub fn draw_triangle_clip(
+pub fn draw_triangle_clip<FS: FragmentShader>(
     c: &mut GlContext,
     v0: GlVertex,
     v1: GlVertex,
     v2: GlVertex,
     provoke: usize,
     clip_bit: i32,
+    shader: &FS,
 ) {
     // If we've tested all clip planes, draw the triangle
     if clip_bit > 32 {
-        draw_triangle_final(c, &v0, &v1, &v2, provoke);
+        draw_triangle_final(c, &v0, &v1, &v2, provoke, shader);
         return;
     }
 
@@ -2289,7 +2420,7 @@ pub fn draw_triangle_clip(
 
     // If this plane doesn't affect any vertex, skip to next
     if (cc & clip_bit) == 0 {
-        draw_triangle_clip(c, v0, v1, v2, provoke, clip_bit << 1);
+        draw_triangle_clip(c, v0, v1, v2, provoke, clip_bit << 1, shader);
         return;
     }
 
@@ -2327,12 +2458,12 @@ pub fn draw_triangle_clip(
         tmp1.edge_flag = q0.edge_flag;
         let edge_flag_tmp = q2.edge_flag;
         q2.edge_flag = 0; // suppress internal edge for first sub-tri
-        draw_triangle_clip(c, tmp1.clone(), q1, q2.clone(), provoke, clip_bit << 1);
+        draw_triangle_clip(c, tmp1.clone(), q1, q2.clone(), provoke, clip_bit << 1, shader);
 
         tmp2.edge_flag = 0; // internal clip edge
         tmp1.edge_flag = 0; // internal edge between sub-triangles
         q2.edge_flag = edge_flag_tmp; // restore
-        draw_triangle_clip(c, tmp2, tmp1, q2, provoke, clip_bit << 1);
+        draw_triangle_clip(c, tmp2, tmp1, q2, provoke, clip_bit << 1, shader);
     } else if num_outside == 2 {
         // Two vertices outside: clip into 1 triangle
         // Rotate so the inside vertex is q[0], outside are q[1], q[2]
@@ -2353,7 +2484,7 @@ pub fn draw_triangle_clip(
         // Edge flag management:
         tmp1.edge_flag = 0; // internal clip edge
         tmp2.edge_flag = q2.edge_flag; // preserves original edge flag
-        draw_triangle_clip(c, q0, tmp1, tmp2, provoke, clip_bit << 1);
+        draw_triangle_clip(c, q0, tmp1, tmp2, provoke, clip_bit << 1, shader);
     }
 }
 
@@ -2429,12 +2560,13 @@ fn interpolate_vertex(v0: &GlVertex, v1: &GlVertex, t: f32, depth_clamp: bool, v
 ///   3. Runs the fragment shader
 ///   4. Performs depth/stencil test and blending
 ///   5. Writes to the back buffer
-pub fn draw_triangle_fill(
+pub fn draw_triangle_fill<FS: FragmentShader>(
     c: &mut GlContext,
     v0: &GlVertex,
     v1: &GlVertex,
     v2: &GlVertex,
     provoke: usize,
+    shader: &FS,
 ) {
     let hp0 = v4_to_v3h(v0.screen_space);
     let hp1 = v4_to_v3h(v1.screen_space);
@@ -2588,14 +2720,10 @@ pub fn draw_triangle_fill(
             c.builtins.discard = false;
             c.builtins.gl_FrontFacing = front_facing;
 
-            let program = &c.programs[program_idx];
-            let fs = program.fragment_shader;
-            let uniform = program.uniform;
             unsafe {
-                (fs)(
+                shader.shade(
                     c.fs_input.as_mut_ptr(),
                     &mut c.builtins as *mut ShaderBuiltins,
-                    uniform,
                 );
             }
 
