@@ -183,7 +183,7 @@ Cargo Features
 | `no_std` | `no_std` + `alloc` support (uses `libm`) | |
 | `no_stencil` | Disable stencil buffer | |
 | `ffi` | Enable C FFI wrappers | |
-| `unsafe_mode` | Allow additional unsafe optimizations | |
+| `disable_color_mask` | Skip per-pixel color mask (matches C `PGL_DISABLE_COLOR_MASK`) | |
 | `hermite_smoothing` | Use Hermite smoothing for interpolation | |
 | `better_thick_lines` | Improved thick line rendering | |
 | `examples` | Build interactive examples and benchmarks (uses SDL2) | |

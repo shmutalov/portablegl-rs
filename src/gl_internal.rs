@@ -300,16 +300,8 @@ pub fn set_stencil(zbuf_val: u32, _stencil: u8) -> u32 {
 fn read_zbuf(c: &GlContext, idx: usize) -> u32 {
     let data = &c.zbuf.buf;
     let off = idx * 4;
-    #[cfg(feature = "unsafe_mode")]
-    {
-        // SAFETY: rasterizer clamps coordinates to viewport; idx is always in bounds.
-        unsafe { u32::from_le_bytes(*(data.as_ptr().add(off) as *const [u8; 4])) }
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 4 > data.len() { return 0; }
-        u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
-    }
+    if off + 4 > data.len() { return 0; }
+    u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
 }
 
 #[cfg(feature = "d16")]
@@ -317,15 +309,8 @@ fn read_zbuf(c: &GlContext, idx: usize) -> u32 {
 fn read_zbuf(c: &GlContext, idx: usize) -> u32 {
     let data = &c.zbuf.buf;
     let off = idx * 2;
-    #[cfg(feature = "unsafe_mode")]
-    {
-        unsafe { u16::from_le_bytes(*(data.as_ptr().add(off) as *const [u8; 2])) as u32 }
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 2 > data.len() { return 0; }
-        u16::from_le_bytes([data[off], data[off + 1]]) as u32
-    }
+    if off + 2 > data.len() { return 0; }
+    u16::from_le_bytes([data[off], data[off + 1]]) as u32
 }
 
 #[cfg(feature = "no_depth")]
@@ -340,18 +325,10 @@ fn read_zbuf(_c: &GlContext, _idx: usize) -> u32 {
 fn write_zbuf(c: &mut GlContext, idx: usize, val: u32) {
     let data = &mut c.zbuf.buf;
     let off = idx * 4;
-    #[cfg(feature = "unsafe_mode")]
-    unsafe {
-        let ptr = data.as_mut_ptr().add(off) as *mut [u8; 4];
-        *ptr = val.to_le_bytes();
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 4 > data.len() { return; }
-        let bytes = val.to_le_bytes();
-        data[off] = bytes[0]; data[off + 1] = bytes[1];
-        data[off + 2] = bytes[2]; data[off + 3] = bytes[3];
-    }
+    if off + 4 > data.len() { return; }
+    let bytes = val.to_le_bytes();
+    data[off] = bytes[0]; data[off + 1] = bytes[1];
+    data[off + 2] = bytes[2]; data[off + 3] = bytes[3];
 }
 
 #[cfg(feature = "d16")]
@@ -359,17 +336,9 @@ fn write_zbuf(c: &mut GlContext, idx: usize, val: u32) {
 fn write_zbuf(c: &mut GlContext, idx: usize, val: u32) {
     let data = &mut c.zbuf.buf;
     let off = idx * 2;
-    #[cfg(feature = "unsafe_mode")]
-    unsafe {
-        let ptr = data.as_mut_ptr().add(off) as *mut [u8; 2];
-        *ptr = (val as u16).to_le_bytes();
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 2 > data.len() { return; }
-        let bytes = (val as u16).to_le_bytes();
-        data[off] = bytes[0]; data[off + 1] = bytes[1];
-    }
+    if off + 2 > data.len() { return; }
+    let bytes = (val as u16).to_le_bytes();
+    data[off] = bytes[0]; data[off + 1] = bytes[1];
 }
 
 #[cfg(feature = "no_depth")]
@@ -386,15 +355,8 @@ fn write_zbuf(_c: &mut GlContext, _idx: usize, _val: u32) {}
 fn read_backbuf_pixel(c: &GlContext, idx: usize) -> u32 {
     let data = &c.back_buffer.buf;
     let off = idx * 4;
-    #[cfg(feature = "unsafe_mode")]
-    {
-        unsafe { u32::from_le_bytes(*(data.as_ptr().add(off) as *const [u8; 4])) }
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 4 > data.len() { return 0; }
-        u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
-    }
+    if off + 4 > data.len() { return 0; }
+    u32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]])
 }
 
 #[cfg(any(feature = "rgb565", feature = "bgr565"))]
@@ -402,15 +364,8 @@ fn read_backbuf_pixel(c: &GlContext, idx: usize) -> u32 {
 fn read_backbuf_pixel(c: &GlContext, idx: usize) -> u32 {
     let data = &c.back_buffer.buf;
     let off = idx * 2;
-    #[cfg(feature = "unsafe_mode")]
-    {
-        unsafe { u16::from_le_bytes(*(data.as_ptr().add(off) as *const [u8; 2])) as u32 }
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 2 > data.len() { return 0; }
-        u16::from_le_bytes([data[off], data[off + 1]]) as u32
-    }
+    if off + 2 > data.len() { return 0; }
+    u16::from_le_bytes([data[off], data[off + 1]]) as u32
 }
 
 /// Write a pixel to the back buffer at the given buffer index.
@@ -419,18 +374,10 @@ fn read_backbuf_pixel(c: &GlContext, idx: usize) -> u32 {
 fn write_backbuf_pixel(c: &mut GlContext, idx: usize, val: u32) {
     let data = &mut c.back_buffer.buf;
     let off = idx * 4;
-    #[cfg(feature = "unsafe_mode")]
-    unsafe {
-        let ptr = data.as_mut_ptr().add(off) as *mut [u8; 4];
-        *ptr = val.to_le_bytes();
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 4 > data.len() { return; }
-        let bytes = val.to_le_bytes();
-        data[off] = bytes[0]; data[off + 1] = bytes[1];
-        data[off + 2] = bytes[2]; data[off + 3] = bytes[3];
-    }
+    if off + 4 > data.len() { return; }
+    let bytes = val.to_le_bytes();
+    data[off] = bytes[0]; data[off + 1] = bytes[1];
+    data[off + 2] = bytes[2]; data[off + 3] = bytes[3];
 }
 
 #[cfg(any(feature = "rgb565", feature = "bgr565"))]
@@ -438,17 +385,9 @@ fn write_backbuf_pixel(c: &mut GlContext, idx: usize, val: u32) {
 fn write_backbuf_pixel(c: &mut GlContext, idx: usize, val: u32) {
     let data = &mut c.back_buffer.buf;
     let off = idx * 2;
-    #[cfg(feature = "unsafe_mode")]
-    unsafe {
-        let ptr = data.as_mut_ptr().add(off) as *mut [u8; 2];
-        *ptr = (val as u16).to_le_bytes();
-    }
-    #[cfg(not(feature = "unsafe_mode"))]
-    {
-        if off + 2 > data.len() { return; }
-        let bytes = (val as u16).to_le_bytes();
-        data[off] = bytes[0]; data[off + 1] = bytes[1];
-    }
+    if off + 2 > data.len() { return; }
+    let bytes = (val as u16).to_le_bytes();
+    data[off] = bytes[0]; data[off + 1] = bytes[1];
 }
 
 // ---------------------------------------------------------------------------
