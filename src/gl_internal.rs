@@ -1509,7 +1509,7 @@ pub fn setup_fs_input(
 /// `alpha`, `beta`, `gamma` are the barycentric weights.
 /// `persp0`, `persp1`, `persp2` are the pre-divided vertex outputs (v_out[j] / w).
 /// `inv_w0`, `inv_w1`, `inv_w2` are the reciprocal clip-space w values.
-#[inline]
+#[inline(always)]
 fn setup_fs_input_triangle(
     c: &mut GlContext,
     alpha: f32,
