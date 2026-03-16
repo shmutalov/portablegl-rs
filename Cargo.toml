@@ -14,7 +14,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [dependencies]
 libm = { version = "0.2", optional = true }
-minifb = { version = "0.28", optional = true }
+sdl2 = { version = "0.37", optional = true }
 
 [features]
 default = ["abgr32", "d24s8"]
@@ -41,7 +41,7 @@ unsafe_mode = []
 hermite_smoothing = []
 better_thick_lines = []
 ffi = []
-examples = ["dep:minifb"]
+examples = ["dep:sdl2"]
 
 [dev-dependencies]
 png = "0.17"
@@ -59,4 +59,9 @@ required-features = ["examples"]
 [[example]]
 name = "spinning_triangle"
 path = "examples/spinning_triangle.rs"
+required-features = ["examples"]
+
+[[example]]
+name = "perf_tests"
+path = "examples/perf_tests.rs"
 required-features = ["examples"]

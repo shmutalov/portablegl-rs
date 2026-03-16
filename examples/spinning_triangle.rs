@@ -9,14 +9,16 @@
 #![allow(unused_assignments)] // uniforms are read via raw pointer by the shader
 
 use core::ffi::c_void;
-use minifb::{Key, Window, WindowOptions};
+use sdl2::event::Event;
+use sdl2::keyboard::Scancode;
+use sdl2::pixels::PixelFormatEnum;
 use portablegl::gl_context::GlContext;
 use portablegl::gl_types::*;
 use portablegl::math::*;
 use std::time::Instant;
 
-const WIDTH: usize = 640;
-const HEIGHT: usize = 480;
+const WIDTH: u32 = 640;
+const HEIGHT: u32 = 480;
 
 #[repr(C)]
 struct MyUniforms {
@@ -44,32 +46,23 @@ unsafe extern "C" fn smooth_fs(
     (*builtins).gl_FragColor = *(fs_input as *const Vec4);
 }
 
-/// Read the PortableGL back buffer and convert ABGR32 → minifb (0x00RRGGBB),
-/// flipping vertically (PortableGL is bottom-up, minifb is top-down).
-fn read_framebuffer(ctx: &GlContext, display_buf: &mut [u32], w: usize, h: usize) {
-    let fb = ctx.pgl_get_back_buffer();
-    for y in 0..h {
-        let src_row = h - 1 - y;
-        for x in 0..w {
-            let off = (src_row * w + x) * 4;
-            let r = fb.buf[off] as u32;
-            let g = fb.buf[off + 1] as u32;
-            let b = fb.buf[off + 2] as u32;
-            display_buf[y * w + x] = (r << 16) | (g << 8) | b;
-        }
-    }
-}
-
 fn main() {
-    let mut window = Window::new(
-        "PortableGL-rs: Spinning Triangle (ESC to exit)",
-        WIDTH,
-        HEIGHT,
-        WindowOptions::default(),
-    )
-    .expect("Failed to create window");
+    let sdl_context = sdl2::init().expect("Failed to init SDL2");
+    let video = sdl_context.video().expect("Failed to init SDL2 video");
 
-    window.set_target_fps(60);
+    let window = video
+        .window("PortableGL-rs: Spinning Triangle (ESC to exit)", WIDTH, HEIGHT)
+        .position_centered()
+        .build()
+        .expect("Failed to create window");
+
+    let mut canvas = window.into_canvas().software().build().expect("Failed to create canvas");
+    let texture_creator = canvas.texture_creator();
+    let mut texture = texture_creator
+        .create_texture_streaming(PixelFormatEnum::ABGR8888, WIDTH, HEIGHT)
+        .expect("Failed to create texture");
+
+    let mut event_pump = sdl_context.event_pump().expect("Failed to get event pump");
 
     let mut ctx = GlContext::new();
     let _pixels = ctx.init(WIDTH as i32, HEIGHT as i32);
@@ -126,9 +119,16 @@ fn main() {
 
     let mut save_rot = Mat4::identity();
     let mut last_frame = Instant::now();
-    let mut display_buf = vec![0u32; WIDTH * HEIGHT];
 
-    while window.is_open() && !window.is_key_down(Key::Escape) {
+    'main_loop: loop {
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown { scancode: Some(Scancode::Escape), .. } => break 'main_loop,
+                _ => {}
+            }
+        }
+
         let now = Instant::now();
         let frame_time = now.duration_since(last_frame).as_secs_f32();
         last_frame = now;
@@ -142,7 +142,9 @@ fn main() {
         ctx.gl_clear(GL_COLOR_BUFFER_BIT);
         ctx.gl_draw_arrays(GL_TRIANGLES, 0, 3);
 
-        read_framebuffer(&ctx, &mut display_buf, WIDTH, HEIGHT);
-        window.update_with_buffer(&display_buf, WIDTH, HEIGHT).unwrap();
+        let fb = ctx.pgl_get_back_buffer();
+        texture.update(None, &fb.buf, fb.w as usize * 4).unwrap();
+        canvas.copy(&texture, None, None).unwrap();
+        canvas.present();
     }
 }
