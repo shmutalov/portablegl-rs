@@ -622,7 +622,7 @@ impl Default for GlBuffer {
 }
 
 /// A single vertex attribute description.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct GlVertexAttrib {
     pub size: GLint,
     pub type_: GLenum,
