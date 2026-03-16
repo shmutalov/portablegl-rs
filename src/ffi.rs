@@ -945,8 +945,8 @@ pub unsafe extern "C" fn pglGetBackBuffer() -> *mut c_void {
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn pglSetBackBuffer(backbuf: *mut c_void, width: GLsizei, height: GLsizei) {
-    ctx!().pgl_set_back_buffer(backbuf as *mut u8, width, height, false);
+pub unsafe extern "C" fn pglSetBackBuffer(backbuf: *mut c_void, width: GLsizei, height: GLsizei, user_owned: GLboolean) {
+    ctx!().pgl_set_back_buffer(backbuf as *mut u8, width, height, user_owned != 0);
 }
 
 // ---------------------------------------------------------------------------
