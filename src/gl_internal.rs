@@ -143,6 +143,56 @@ pub fn rgba_to_pixel(r: u8, g: u8, b: u8, _a: u8) -> u32 {
     (r5 << PGL_RED_SHIFT_565) | (g6 << PGL_GREEN_SHIFT_565) | (b5 << PGL_BLUE_SHIFT_565)
 }
 
+/// Convert a Vec4 (0.0–1.0 RGBA floats) directly to a packed pixel u32.
+/// Clamps and converts in a single pass without intermediate Color struct.
+#[cfg(any(feature = "abgr32", feature = "rgba32", feature = "argb32", feature = "bgra32"))]
+#[inline(always)]
+pub fn vec4_to_pixel(v: Vec4) -> u32 {
+    let r = (v.x.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let g = (v.y.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let b = (v.z.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let a = (v.w.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    (a << PGL_ALPHA_SHIFT) | (b << PGL_BLUE_SHIFT) | (g << PGL_GREEN_SHIFT) | (r << PGL_RED_SHIFT)
+}
+
+#[cfg(any(feature = "rgb565", feature = "bgr565"))]
+#[inline(always)]
+pub fn vec4_to_pixel(v: Vec4) -> u32 {
+    let r = (v.x.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let g = (v.y.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let b = (v.z.clamp_(0.0, 1.0) * 255.0 + 0.5) as u32;
+    let r5 = (r >> 3) & 0x1F;
+    let g6 = (g >> 2) & 0x3F;
+    let b5 = (b >> 3) & 0x1F;
+    (r5 << PGL_RED_SHIFT_565) | (g6 << PGL_GREEN_SHIFT_565) | (b5 << PGL_BLUE_SHIFT_565)
+}
+
+/// Unpack a u32 pixel directly to Vec4 (0.0–1.0 RGBA floats).
+#[cfg(any(feature = "abgr32", feature = "rgba32", feature = "argb32", feature = "bgra32"))]
+#[inline(always)]
+pub fn pixel_to_vec4(p: u32) -> Vec4 {
+    Vec4::new(
+        ((p >> PGL_RED_SHIFT) & 0xFF) as f32 / 255.0,
+        ((p >> PGL_GREEN_SHIFT) & 0xFF) as f32 / 255.0,
+        ((p >> PGL_BLUE_SHIFT) & 0xFF) as f32 / 255.0,
+        ((p >> PGL_ALPHA_SHIFT) & 0xFF) as f32 / 255.0,
+    )
+}
+
+#[cfg(any(feature = "rgb565", feature = "bgr565"))]
+#[inline(always)]
+pub fn pixel_to_vec4(p: u32) -> Vec4 {
+    let r5 = ((p >> PGL_RED_SHIFT_565) & 0x1F) as u8;
+    let g6 = ((p >> PGL_GREEN_SHIFT_565) & 0x3F) as u8;
+    let b5 = ((p >> PGL_BLUE_SHIFT_565) & 0x1F) as u8;
+    Vec4::new(
+        ((r5 << 3) | (r5 >> 2)) as f32 / 255.0,
+        ((g6 << 2) | (g6 >> 4)) as f32 / 255.0,
+        ((b5 << 3) | (b5 >> 2)) as f32 / 255.0,
+        1.0,
+    )
+}
+
 /// Unpack a u32 pixel (selected 32-bit format) into a Color.
 #[cfg(any(feature = "abgr32", feature = "rgba32", feature = "argb32", feature = "bgra32"))]
 #[inline]
@@ -1262,9 +1312,9 @@ fn blend_factor(factor: GLenum, src: Vec4, dst: Vec4, const_color: Vec4) -> Vec4
 }
 
 /// Blend source and destination colors according to the current blend state.
-/// Returns the blended result as a Color.
+/// Returns the blended result as a clamped Vec4.
 #[inline]
-pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
+pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Vec4 {
     let const_color = c.blend_color;
 
     let sf_rgb = blend_factor(c.blend_srgb, src, dst, const_color);
@@ -1306,12 +1356,12 @@ pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
         _ => s_rgb.w + d_rgb.w,
     };
 
-    Color::from_vec4(Vec4::new(
+    Vec4::new(
         r.clamp_(0.0, 1.0),
         g.clamp_(0.0, 1.0),
         b.clamp_(0.0, 1.0),
         a.clamp_(0.0, 1.0),
-    ))
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1368,7 +1418,12 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
     if c.blend {
         let dst_color = pixel_to_color(dest_pixel).to_vec4();
         let blended = blend_pixel(c, cf, dst_color);
-        pixel_val = rgba_to_pixel(blended.r, blended.g, blended.b, blended.a);
+        // blend_pixel returns already-clamped Vec4, skip double clamp
+        let r = (blended.x * 255.0 + 0.5) as u8;
+        let g = (blended.y * 255.0 + 0.5) as u8;
+        let b = (blended.z * 255.0 + 0.5) as u8;
+        let a = (blended.w * 255.0 + 0.5) as u8;
+        pixel_val = rgba_to_pixel(r, g, b, a);
     } else {
         let color = Color::from_vec4(cf);
         pixel_val = rgba_to_pixel(color.r, color.g, color.b, color.a);
