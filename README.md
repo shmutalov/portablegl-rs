@@ -277,17 +277,17 @@ test scenes and SDL2 for display/timing. All 11 benchmarks are ported 1:1 from t
 
 | Benchmark | C (FPS) | Rust (FPS) | Ratio | Description |
 |-----------|--------:|----------:|---------:|-------------|
-| `points_perf` | 1085.1 | 744.4 | 0.69x | 12,000 points, size 1 |
-| `pointsize_perf` | 1737.3 | 1271.1 | 0.73x | ~857 points, size 4 |
-| `lines_perf` | 274.3 | 266.7 | 0.97x | 1,000 lines, width 1 |
-| `lines8_perf` | 42.6 | 47.2 | **1.11x** | 1,000 lines, width 8 |
-| `lines16_perf` | 21.6 | 23.9 | **1.11x** | 1,000 lines, width 16 |
-| `triangles_perf` | 24.3 | 29.1 | **1.20x** | 50 random triangles |
-| `tri_interp_perf` | 42.2 | 39.8 | 0.94x | 30 smooth-shaded triangles |
-| `tri_clipxy_perf` | 691.3 | 701.4 | **1.01x** | 20 triangles, XY clipping |
-| `tri_clipz_perf` | 162.1 | 199.3 | **1.23x** | 15 triangles, Z clipping |
-| `tri_clipxyz_perf` | 270.2 | 329.9 | **1.22x** | 50 triangles, XYZ clipping |
-| `blend_perf` | 328.3 | 290.2 | 0.88x | Alpha blending (9 quads) |
+| `points_perf` | 1084.0 | 750.3 | 0.69x | 12,000 points, size 1 |
+| `pointsize_perf` | 1731.3 | 1268.8 | 0.73x | ~857 points, size 4 |
+| `lines_perf` | 274.7 | 270.4 | 0.98x | 1,000 lines, width 1 |
+| `lines8_perf` | 42.5 | 47.8 | **1.12x** | 1,000 lines, width 8 |
+| `lines16_perf` | 21.7 | 24.2 | **1.12x** | 1,000 lines, width 16 |
+| `triangles_perf` | 23.7 | 32.0 | **1.35x** | 50 random triangles |
+| `tri_interp_perf` | 42.1 | 39.6 | 0.94x | 30 smooth-shaded triangles |
+| `tri_clipxy_perf` | 680.6 | 692.1 | **1.02x** | 20 triangles, XY clipping |
+| `tri_clipz_perf` | 160.0 | 198.7 | **1.24x** | 15 triangles, Z clipping |
+| `tri_clipxyz_perf` | 272.8 | 328.1 | **1.20x** | 50 triangles, XYZ clipping |
+| `blend_perf` | 328.4 | 291.6 | 0.89x | Alpha blending (9 quads) |
 
 Values are the average of two consecutive runs. **Bold** ratios indicate Rust is faster.
 
