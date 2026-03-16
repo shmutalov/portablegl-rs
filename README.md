@@ -49,6 +49,7 @@ Features
 - Point sprites with gl_PointCoord
 - Polygon offset (depth bias)
 - Logic operations
+- Monomorphized shader dispatch via `FragmentShader` trait (LLVM inlines shaders into pixel loops)
 - `no_std` support (with `alloc`)
 - C FFI layer for drop-in replacement of the original C library
 
@@ -76,7 +77,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-portablegl = { path = "path/to/portablegl-rs" }
+portablegl = "0.8"
 ```
 
 Basic usage:
@@ -122,6 +123,31 @@ fn main() {
 }
 ```
 
+### Monomorphized Shaders (Advanced)
+
+For maximum performance, implement the `FragmentShader` trait on a concrete type.
+LLVM inlines the shader body directly into the rasterization loop, eliminating
+per-pixel indirect call overhead:
+
+```rust
+use portablegl::gl_types::*;
+use portablegl::math::*;
+
+struct RedShader;
+
+impl FragmentShader for RedShader {
+    #[inline(always)]
+    unsafe fn shade(&self, _fs_input: *mut f32, builtins: *mut ShaderBuiltins) {
+        (*builtins).gl_FragColor = Vec4::new(1.0, 0.0, 0.0, 1.0);
+    }
+}
+
+// Use instead of gl_draw_arrays for triangle modes:
+ctx.gl_draw_arrays_with_fs(GL_TRIANGLES, 0, count, &RedShader);
+```
+
+This is a non-breaking opt-in — the standard `gl_draw_arrays` API works unchanged.
+
 ### As a C Drop-in Replacement
 
 Build with the `ffi` feature to produce a shared/static library:
@@ -150,7 +176,7 @@ extern void glClear(unsigned int mask);
 
 ```toml
 [dependencies]
-portablegl = { path = "path/to/portablegl-rs", features = ["no_std"] }
+portablegl = { version = "0.8", features = ["no_std"] }
 ```
 
 Requires an allocator (`alloc` crate). Uses `libm` for float math. Works on embedded targets,
