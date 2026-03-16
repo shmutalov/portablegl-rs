@@ -1527,14 +1527,9 @@ impl GlContext {
 
             // Fast path: color-only with trivial mask — use fill
             if do_color && color_mask_trivial {
-                let bytes = color_val.to_le_bytes();
                 let buf = &mut self.back_buffer.buf;
                 for i in 0..total {
-                    let off = i * 4;
-                    unsafe {
-                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
-                        *ptr = bytes;
-                    }
+                    write_pixel(buf, i, color_val);
                 }
             } else if do_color {
                 for i in 0..total {
@@ -1545,26 +1540,16 @@ impl GlContext {
             }
 
             if do_depth {
-                let bytes = depth_val.to_le_bytes();
                 let buf = &mut self.zbuf.buf;
                 for i in 0..total {
-                    let off = i * 4;
-                    unsafe {
-                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
-                        *ptr = bytes;
-                    }
+                    write_pixel(buf, i, depth_val);
                 }
             }
 
             if do_stencil {
-                let bytes = stencil_val.to_le_bytes();
                 let buf = &mut self.stencil_buf.buf;
                 for i in 0..total {
-                    let off = i * 4;
-                    unsafe {
-                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
-                        *ptr = bytes;
-                    }
+                    write_pixel(buf, i, stencil_val);
                 }
             }
         } else {
