@@ -158,7 +158,7 @@ custom OS kernels, WASM without `std`, etc.
 
 ### Running Examples
 
-Three interactive examples are included (using `minifb` for windowing):
+Three interactive examples are included (using SDL2 for windowing):
 
 ```sh
 cargo run --example hello_triangle --features examples      # Solid red triangle
@@ -186,7 +186,7 @@ Cargo Features
 | `unsafe_mode` | Allow additional unsafe optimizations | |
 | `hermite_smoothing` | Use Hermite smoothing for interpolation | |
 | `better_thick_lines` | Improved thick line rendering | |
-| `examples` | Build interactive examples (uses `minifb`) | |
+| `examples` | Build interactive examples and benchmarks (uses SDL2) | |
 
 Project Structure
 =================
@@ -231,6 +231,63 @@ Real-World Example: Craft-rs
 (a Minecraft clone by Michael Fogleman) that uses PortableGL-rs for all rendering — no GPU required.
 It demonstrates the library in a real-world application with textured voxel terrain, ambient occlusion,
 day/night cycle, procedural world generation, and multiple shader programs (block, sky, text, line).
+
+Performance Benchmarks
+======================
+
+Comparative benchmarks between the original C PortableGL and this Rust port, using identical
+test scenes and SDL2 for display/timing. All 11 benchmarks are ported 1:1 from the upstream
+[testing/performance_tests.cpp](https://github.com/rswinkle/PortableGL/blob/master/testing/performance_tests.cpp).
+
+### Test System
+
+- **CPU:** Intel Core i5-12400F (6 cores / 12 threads)
+- **RAM:** 32 GB DDR4-3200
+- **OS:** Windows 10 LTSC (Build 19044)
+- **C compiler:** g++ 15.2.0 (MinGW-w64, `-O2 -ffp-contract=off`)
+- **Rust compiler:** rustc 1.94.0 (`--release`)
+
+### Results
+
+| Benchmark | C (FPS) | Rust (FPS) | Ratio | Description |
+|-----------|--------:|----------:|---------:|-------------|
+| `points_perf` | 1085.1 | 647.3 | 0.60x | 12,000 points, size 1 |
+| `pointsize_perf` | 1737.3 | 900.6 | 0.52x | ~857 points, size 4 |
+| `lines_perf` | 274.3 | 223.5 | 0.81x | 1,000 lines, width 1 |
+| `lines8_perf` | 42.6 | 39.0 | 0.92x | 1,000 lines, width 8 |
+| `lines16_perf` | 21.6 | 20.4 | 0.94x | 1,000 lines, width 16 |
+| `triangles_perf` | 24.3 | 29.4 | **1.21x** | 50 random triangles |
+| `tri_interp_perf` | 42.2 | 18.3 | 0.43x | 30 smooth-shaded triangles |
+| `tri_clipxy_perf` | 691.3 | 551.4 | 0.80x | 20 triangles, XY clipping |
+| `tri_clipz_perf` | 162.1 | 164.7 | **1.02x** | 15 triangles, Z clipping |
+| `tri_clipxyz_perf` | 270.2 | 291.6 | **1.08x** | 50 triangles, XYZ clipping |
+| `blend_perf` | 328.3 | 244.9 | 0.75x | Alpha blending (9 quads) |
+
+Values are the average of two consecutive runs. **Bold** ratios indicate Rust is faster.
+
+### Running the Benchmarks
+
+```sh
+# Rust benchmarks (all tests)
+cargo run --example perf_tests --features examples --release
+
+# Rust benchmarks (specific test)
+cargo run --example perf_tests --features examples --release -- triangles_perf
+
+# C benchmarks (from the PortableGL repo)
+cd PortableGL/testing
+make -f perf_tests.make config=release
+./perf_tests
+```
+
+### Analysis
+
+The Rust port is competitive with the C original across the board. Fill-rate-bound tests
+(thick lines, Z-clipping, XYZ-clipping, basic triangles) are at parity or faster. The main
+gaps are in point rendering and smooth-shaded triangle interpolation, which are targets for
+future optimization. Note that the C version defines `PGL_UNSAFE` and `PGL_DISABLE_COLOR_MASK`
+for its benchmarks, which skip some safety checks; the Rust port currently does not have
+equivalent compile-time elisions.
 
 Similar/Related Projects
 ========================
