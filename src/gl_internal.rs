@@ -2319,8 +2319,8 @@ pub fn draw_triangle_clip(
         let t1 = clip_lerp_factor(clip_bit, &q0.clip_space, &q1.clip_space);
         let t2 = clip_lerp_factor(clip_bit, &q0.clip_space, &q2.clip_space);
 
-        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp);
-        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp);
+        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp, c.vs_output.size as usize);
+        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp, c.vs_output.size as usize);
 
         // Edge flag management matching C's draw_triangle_clip:
         // tmp1 gets q[0]'s edge flag (it's on the q[0]→q[1] edge)
@@ -2347,8 +2347,8 @@ pub fn draw_triangle_clip(
         let t1 = clip_lerp_factor(clip_bit, &q0.clip_space, &q1.clip_space);
         let t2 = clip_lerp_factor(clip_bit, &q0.clip_space, &q2.clip_space);
 
-        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp);
-        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp);
+        let mut tmp1 = interpolate_vertex(&q0, &q1, t1, c.depth_clamp, c.vs_output.size as usize);
+        let mut tmp2 = interpolate_vertex(&q0, &q2, t2, c.depth_clamp, c.vs_output.size as usize);
 
         // Edge flag management:
         tmp1.edge_flag = 0; // internal clip edge
@@ -2395,11 +2395,11 @@ fn clip_lerp_factor(clip_bit: i32, a: &Vec4, b: &Vec4) -> f32 {
 
 /// Interpolate between two vertices at parameter `t` (0 = v0, 1 = v1).
 /// The resulting vertex has new clip-space coordinates and interpolated shader outputs.
-fn interpolate_vertex(v0: &GlVertex, v1: &GlVertex, t: f32, depth_clamp: bool) -> GlVertex {
+fn interpolate_vertex(v0: &GlVertex, v1: &GlVertex, t: f32, depth_clamp: bool, vs_output_size: usize) -> GlVertex {
     let clip_space = Vec4::add(v0.clip_space, Vec4::sub(v1.clip_space, v0.clip_space) * t);
 
     let mut vs_out = [0.0f32; GL_MAX_VERTEX_OUTPUT_COMPONENTS];
-    for j in 0..GL_MAX_VERTEX_OUTPUT_COMPONENTS {
+    for j in 0..vs_output_size {
         vs_out[j] = v0.vs_out[j] + (v1.vs_out[j] - v0.vs_out[j]) * t;
     }
 
