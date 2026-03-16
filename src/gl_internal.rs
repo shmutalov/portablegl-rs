@@ -1537,7 +1537,6 @@ pub fn draw_thick_line(
     let sub_y = y2 - y1;
     let line_length_squared = sub_x * sub_x + sub_y * sub_y;
 
-    let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
     let program_idx = c.cur_program as usize;
 
@@ -1584,10 +1583,9 @@ pub fn draw_thick_line(
                     let program = &$c.programs[program_idx];
                     let fs = program.fragment_shader;
                     let uniform = program.uniform;
-                    let mut fs_input_copy: Vec<f32> = $c.fs_input[..vs_output_size].to_vec();
                     unsafe {
                         (fs)(
-                            fs_input_copy.as_mut_ptr(),
+                            $c.fs_input.as_mut_ptr(),
                             &mut $c.builtins as *mut ShaderBuiltins,
                             uniform,
                         );
@@ -1711,7 +1709,6 @@ pub fn draw_aa_line(
     provoke: usize,
     poly_offset: f32,
 ) {
-    let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
     let program_idx = c.cur_program as usize;
 
@@ -1750,10 +1747,9 @@ pub fn draw_aa_line(
                     let program = &$c.programs[program_idx];
                     let fs = program.fragment_shader;
                     let uniform = program.uniform;
-                    let mut fs_input_copy: Vec<f32> = $c.fs_input[..vs_output_size].to_vec();
                     unsafe {
                         (fs)(
-                            fs_input_copy.as_mut_ptr(),
+                            $c.fs_input.as_mut_ptr(),
                             &mut $c.builtins as *mut ShaderBuiltins,
                             uniform,
                         );
@@ -2005,11 +2001,9 @@ pub fn draw_thick_line(
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
-
             unsafe {
                 (fs)(
-                    fs_input_copy.as_mut_ptr(),
+                    c.fs_input.as_mut_ptr(),
                     &mut c.builtins as *mut ShaderBuiltins,
                     uniform,
                 );
@@ -2112,11 +2106,9 @@ pub fn draw_point(c: &mut GlContext, vert: &GlVertex, poly_offset: f32) {
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
-
             unsafe {
                 (fs)(
-                    fs_input_copy.as_mut_ptr(),
+                    c.fs_input.as_mut_ptr(),
                     &mut c.builtins as *mut ShaderBuiltins,
                     uniform,
                 );
@@ -2492,7 +2484,6 @@ pub fn draw_triangle_fill(
     let w1 = v1.screen_space.w;
     let w2 = v2.screen_space.w;
 
-    let vs_output_size = c.vs_output.size as usize;
     let fragdepth_or_discard = c.fragdepth_or_discard;
     let depth_range_near = c.depth_range_near;
     let depth_range_far = c.depth_range_far;
@@ -2580,11 +2571,9 @@ pub fn draw_triangle_fill(
             let program = &c.programs[program_idx];
             let fs = program.fragment_shader;
             let uniform = program.uniform;
-            let mut fs_input_copy: Vec<f32> = c.fs_input[..vs_output_size].to_vec();
-
             unsafe {
                 (fs)(
-                    fs_input_copy.as_mut_ptr(),
+                    c.fs_input.as_mut_ptr(),
                     &mut c.builtins as *mut ShaderBuiltins,
                     uniform,
                 );
