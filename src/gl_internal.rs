@@ -953,6 +953,7 @@ pub fn stencil_test_func(func: GLenum, ref_val: i32, mask: u32, stencil_val: u8)
 // ---------------------------------------------------------------------------
 
 /// Apply a bitwise logic operation between source and destination pixels.
+#[inline]
 pub fn logic_ops_pixel(logic_func: GLenum, s: u32, d: u32) -> u32 {
     match logic_func {
         GL_CLEAR => 0,
@@ -983,6 +984,7 @@ pub fn logic_ops_pixel(logic_func: GLenum, s: u32, d: u32) -> u32 {
 /// fragment passes all tests and should be drawn.
 ///
 /// Uses lastrow addressing where pixel index = `(height - 1 - y) * width + x`.
+#[inline]
 pub fn fragment_processing(c: &mut GlContext, x: i32, y: i32, z: f32) -> bool {
     let buf_w = c.back_buffer.w;
     let buf_h = c.back_buffer.h;
@@ -1132,6 +1134,7 @@ fn blend_factor(factor: GLenum, src: Vec4, dst: Vec4, const_color: Vec4) -> Vec4
 
 /// Blend source and destination colors according to the current blend state.
 /// Returns the blended result as a Color.
+#[inline]
 pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
     let const_color = c.blend_color;
 
@@ -1191,6 +1194,7 @@ pub fn blend_pixel(c: &GlContext, src: Vec4, dst: Vec4) -> Color {
 ///
 /// `do_frag_processing` should be true when the fragment shader may write
 /// gl_FragDepth or call discard, meaning depth/stencil tests were deferred.
+#[inline]
 pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_processing: bool) {
     let buf_w = c.back_buffer.w;
     let buf_h = c.back_buffer.h;
@@ -1263,6 +1267,7 @@ pub fn draw_pixel(c: &mut GlContext, cf: Vec4, x: i32, y: i32, z: f32, do_frag_p
 /// `t` is the parametric position along the line [0, 1].
 /// `wa`, `wb` are the clip-space w values for perspective correction.
 /// `provoke` is the index of the provoking vertex in glverts (for flat shading).
+#[inline]
 pub fn setup_fs_input(
     c: &mut GlContext,
     t: f32,
@@ -1320,6 +1325,7 @@ pub fn setup_fs_input(
 /// `alpha`, `beta`, `gamma` are the barycentric weights.
 /// `persp0`, `persp1`, `persp2` are the pre-divided vertex outputs (v_out[j] / w).
 /// `inv_w0`, `inv_w1`, `inv_w2` are the reciprocal clip-space w values.
+#[inline]
 fn setup_fs_input_triangle(
     c: &mut GlContext,
     alpha: f32,
