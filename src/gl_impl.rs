@@ -1516,20 +1516,55 @@ impl GlContext {
         let stencil_val = self.clear_stencil as u32;
         let color_val = self.clear_color;
 
+        // Check if color mask is a no-op (all channels enabled)
+        #[cfg(feature = "disable_color_mask")]
+        let color_mask_trivial = true;
+        #[cfg(not(feature = "disable_color_mask"))]
+        let color_mask_trivial = self.color_mask == 0xFFFFFFFF;
+
         if !self.scissor_test {
-            // Clear entire buffer
             let total = (w * h) as usize;
-            for i in 0..total {
-                if do_color {
+
+            // Fast path: color-only with trivial mask — use fill
+            if do_color && color_mask_trivial {
+                let bytes = color_val.to_le_bytes();
+                let buf = &mut self.back_buffer.buf;
+                for i in 0..total {
+                    let off = i * 4;
+                    unsafe {
+                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
+                        *ptr = bytes;
+                    }
+                }
+            } else if do_color {
+                for i in 0..total {
                     let existing = read_pixel(&self.back_buffer.buf, i);
                     let masked = (color_val & self.color_mask) | (existing & !self.color_mask);
                     write_pixel(&mut self.back_buffer.buf, i, masked);
                 }
-                if do_depth {
-                    write_pixel(&mut self.zbuf.buf, i, depth_val);
+            }
+
+            if do_depth {
+                let bytes = depth_val.to_le_bytes();
+                let buf = &mut self.zbuf.buf;
+                for i in 0..total {
+                    let off = i * 4;
+                    unsafe {
+                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
+                        *ptr = bytes;
+                    }
                 }
-                if do_stencil {
-                    write_pixel(&mut self.stencil_buf.buf, i, stencil_val);
+            }
+
+            if do_stencil {
+                let bytes = stencil_val.to_le_bytes();
+                let buf = &mut self.stencil_buf.buf;
+                for i in 0..total {
+                    let off = i * 4;
+                    unsafe {
+                        let ptr = buf.as_mut_ptr().add(off) as *mut [u8; 4];
+                        *ptr = bytes;
+                    }
                 }
             }
         } else {
@@ -1545,10 +1580,14 @@ impl GlContext {
                 for col in sx..(sx + sw).min(bw) {
                     let i = ((bh - 1 - row) * bw + col) as usize;
                     if do_color {
-                        let existing = read_pixel(&self.back_buffer.buf, i);
-                        let masked =
-                            (color_val & self.color_mask) | (existing & !self.color_mask);
-                        write_pixel(&mut self.back_buffer.buf, i, masked);
+                        if color_mask_trivial {
+                            write_pixel(&mut self.back_buffer.buf, i, color_val);
+                        } else {
+                            let existing = read_pixel(&self.back_buffer.buf, i);
+                            let masked =
+                                (color_val & self.color_mask) | (existing & !self.color_mask);
+                            write_pixel(&mut self.back_buffer.buf, i, masked);
+                        }
                     }
                     if do_depth {
                         write_pixel(&mut self.zbuf.buf, i, depth_val);
